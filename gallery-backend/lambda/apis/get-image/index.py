@@ -30,7 +30,7 @@ def generate_presigned_url(object_key: str) -> str:
             'Key': object_key,
             'ResponseContentType': 'image/jpeg'
         },
-        ExpiresIn='300'
+        ExpiresIn=300
     )
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -42,7 +42,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     try:
         # path parameter에서 userId 가져오기
-        path_parameters = event.get('pathParameters', {})
+        path_parameters = event.get('pathParameters') or {}
         user_id = path_parameters.get('userId')
 
         if not user_id:

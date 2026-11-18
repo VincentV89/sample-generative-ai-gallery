@@ -1,0 +1,443 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Development preview of the gallery-backend (S3 + DynamoDB + Lambda + API Gateway).
+  Mirrors the CDK stacks in ../stacks without the FaceChain GPU endpoint; face-swap writes
+  a Pillow composite unless FaceChainEndpointName is set.
+
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Description: Frontend origin allowed by CORS (the preview CloudFront URL)
+  FaceChainEndpointName:
+    Type: String
+    Default: ""
+    Description: Optional existing FaceChain SageMaker endpoint; empty uses the preview composite
+
+Conditions:
+  HasFaceChainEndpoint: !Not [!Equals [!Ref FaceChainEndpointName, ""]]
+
+Mappings:
+  Paths:
+    S3:
+      FaceImages: face-image/
+      FaceCropped: face-cropped-image/
+      Results: result-image/
+      BaseImages: base-image/
+
+Resources:
+  # ---------- Storage ----------
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: [FaceCropS3Permission, FaceSwapS3Permission, FaceSwapCompletionS3Permission]
+    Properties:
+      BucketName: !Sub "bgagent-dev-gallery-9685a0ff05aa-data-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [GET, PUT]
+            AllowedOrigins: [!Ref AllowedOrigin, "http://localhost:3000"]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-user-images
+            Status: Enabled
+            Prefix: face-
+            ExpirationInDays: 30
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:Put
+            Function: !GetAtt FaceCropFunction.Arn
+            Filter: { S3Key: { Rules: [{ Name: prefix, Value: !FindInMap [Paths, S3, FaceImages] }] } }
+          - Event: s3:ObjectCreated:Put
+            Function: !GetAtt FaceSwapFunction.Arn
+            Filter: { S3Key: { Rules: [{ Name: prefix, Value: !FindInMap [Paths, S3, FaceCropped] }] } }
+          - Event: s3:ObjectCreated:Put
+            Function: !GetAtt FaceSwapCompletionFunction.Arn
+            Filter: { S3Key: { Rules: [{ Name: prefix, Value: !FindInMap [Paths, S3, Results] }] } }
+
+  ProcessTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: PK, AttributeType: S }]
+      KeySchema: [{ AttributeName: PK, KeyType: HASH }]
+  DisplayTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: PK, AttributeType: S }]
+      KeySchema: [{ AttributeName: PK, KeyType: HASH }]
+  BaseResourceTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+  UserAgreementTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: savedAt, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: savedAt, KeyType: RANGE }
+
+  # ---------- IAM ----------
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: gallery-preview
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::bgagent-dev-gallery-9685a0ff05aa-data-${AWS::AccountId}-${AWS::Region}/*"
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::bgagent-dev-gallery-9685a0ff05aa-data-${AWS::AccountId}-${AWS::Region}"
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query]
+                Resource:
+                  - !GetAtt ProcessTable.Arn
+                  - !GetAtt DisplayTable.Arn
+                  - !GetAtt BaseResourceTable.Arn
+                  - !GetAtt UserAgreementTable.Arn
+              - Effect: Allow
+                Action: rekognition:DetectFaces
+                Resource: "*"
+              - !If
+                - HasFaceChainEndpoint
+                - Effect: Allow
+                  Action: sagemaker:InvokeEndpoint
+                  Resource: !Sub "arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${FaceChainEndpointName}"
+                - !Ref AWS::NoValue
+
+  # ---------- Lambda ----------
+  PillowLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      Description: Pillow for python3.11 x86_64
+      CompatibleRuntimes: [python3.11]
+      Content: ../.preview-build/pillow-layer
+
+  PutImageFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt FunctionRole.Arn
+      Code: ../lambda/apis/put-image
+      Timeout: 10
+      MemorySize: 512
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref DataBucket
+          OBJECT_PATH: !FindInMap [Paths, S3, FaceImages]
+          DDB_AMAZON_BEDROCK_GALLERY_BASE_RESOURCE_TABLE_NAME: !Ref BaseResourceTable
+          DDB_AMAZON_BEDROCK_GALLERY_PROCESS_TABLE_NAME: !Ref ProcessTable
+
+  GetImageFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt FunctionRole.Arn
+      Code: ../lambda/apis/get-image
+      Timeout: 10
+      MemorySize: 512
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref DataBucket
+          DDB_AMAZON_BEDROCK_GALLERY_DISPLAY_TABLE_NAME: !Ref DisplayTable
+
+  UserAgreementFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt FunctionRole.Arn
+      Code: ../lambda/apis/user-agreement
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          DDB_AMAZON_BEDROCK_USER_AGREEMENT_TABLE_NAME: !Ref UserAgreementTable
+
+  FaceCropFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt FunctionRole.Arn
+      Code: ../lambda/image-processing/face-crop
+      Layers: [!Ref PillowLayer]
+      Timeout: 30
+      MemorySize: 1024
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub "bgagent-dev-gallery-9685a0ff05aa-data-${AWS::AccountId}-${AWS::Region}"
+          FACE_CROPPED_OBJECT_PATH: !FindInMap [Paths, S3, FaceCropped]
+
+  FaceSwapFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt FunctionRole.Arn
+      Code: ../lambda/image-processing/face-swap
+      Layers: [!Ref PillowLayer]
+      Timeout: 60
+      MemorySize: 1024
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub "bgagent-dev-gallery-9685a0ff05aa-data-${AWS::AccountId}-${AWS::Region}"
+          RESULT_OBJECT_PATH: !FindInMap [Paths, S3, Results]
+          FACECHAIN_SAGEMAKER_ENDPOINT_NAME: !Ref FaceChainEndpointName
+          DDB_AMAZON_BEDROCK_GALLERY_PROCESS_TABLE_NAME: !Ref ProcessTable
+
+  FaceSwapCompletionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt FunctionRole.Arn
+      Code: ../lambda/image-processing/face-swap-completion
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DDB_AMAZON_BEDROCK_GALLERY_PROCESS_TABLE_NAME: !Ref ProcessTable
+          DDB_AMAZON_BEDROCK_GALLERY_DISPLAY_TABLE_NAME: !Ref DisplayTable
+
+  FaceCropS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref FaceCropFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub "arn:${AWS::Partition}:s3:::bgagent-dev-gallery-9685a0ff05aa-data-${AWS::AccountId}-${AWS::Region}"
+  FaceSwapS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref FaceSwapFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub "arn:${AWS::Partition}:s3:::bgagent-dev-gallery-9685a0ff05aa-data-${AWS::AccountId}-${AWS::Region}"
+  FaceSwapCompletionS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref FaceSwapCompletionFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub "arn:${AWS::Partition}:s3:::bgagent-dev-gallery-9685a0ff05aa-data-${AWS::AccountId}-${AWS::Region}"
+
+  # ---------- API Gateway ----------
+  Api:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub "${AWS::StackName}-api"
+      Description: Gallery development preview API
+      EndpointConfiguration: { Types: [REGIONAL] }
+
+  ApisResource:
+    Type: AWS::ApiGateway::Resource
+    Properties: { RestApiId: !Ref Api, ParentId: !GetAtt Api.RootResourceId, PathPart: apis }
+  ImagesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties: { RestApiId: !Ref Api, ParentId: !Ref ApisResource, PathPart: images }
+  UploadResource:
+    Type: AWS::ApiGateway::Resource
+    Properties: { RestApiId: !Ref Api, ParentId: !Ref ImagesResource, PathPart: upload }
+  UserImageResource:
+    Type: AWS::ApiGateway::Resource
+    Properties: { RestApiId: !Ref Api, ParentId: !Ref ImagesResource, PathPart: "{userId}" }
+  AgreeResource:
+    Type: AWS::ApiGateway::Resource
+    Properties: { RestApiId: !Ref Api, ParentId: !GetAtt Api.RootResourceId, PathPart: agree }
+
+  UploadPost:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref UploadResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PutImageFunction.Arn}/invocations"
+  UserImageGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref UserImageResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetImageFunction.Arn}/invocations"
+  AgreePost:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref AgreeResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UserAgreementFunction.Arn}/invocations"
+
+  UploadOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref UploadResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates: { application/json: '{"statusCode": 200}' }
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+  UserImageOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref UserImageResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates: { application/json: '{"statusCode": 200}' }
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+  AgreeOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref AgreeResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates: { application/json: '{"statusCode": 200}' }
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+  ApiInvokePutImage:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PutImageFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/POST/apis/images/upload"
+  ApiInvokeGetImage:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref GetImageFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/GET/apis/images/*"
+  ApiInvokeAgree:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref UserAgreementFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/POST/agree"
+
+  # deploy.sh also calls create-deployment so method changes always reach the stage
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: [UploadPost, UserImageGet, AgreePost, UploadOptions, UserImageOptions, AgreeOptions]
+    Properties:
+      RestApiId: !Ref Api
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref Api
+      DeploymentId: !Ref ApiDeployment
+      StageName: prod
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingBurstLimit: 50
+          ThrottlingRateLimit: 20
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}"
+  ApiEndpoint:
+    Description: Value for REACT_APP_API_ENDPOINT
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}/apis"
+  RestApiId:
+    Value: !Ref Api
+  DataBucketName:
+    Value: !Ref DataBucket
+  BaseResourceTableName:
+    Value: !Ref BaseResourceTable
+  BaseImagesPrefix:
+    Value: !FindInMap [Paths, S3, BaseImages]

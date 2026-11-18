@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Deploys the gallery-frontend development preview (S3 + CloudFront OAC + Cognito).
-# Usage: ./deploy.sh   (optionally export REACT_APP_API_ENDPOINT / REACT_APP_USER_AGREEMENT_ENDPOINT first)
+# Usage: ./deploy.sh
+# API endpoints come from the gallery-backend preview stack (../../gallery-backend/preview) when it exists;
+# exporting REACT_APP_API_ENDPOINT / REACT_APP_USER_AGREEMENT_ENDPOINT overrides them.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FRONTEND="$(dirname "$HERE")"
@@ -15,6 +17,13 @@ aws cloudformation deploy --region "$REGION" --stack-name "$STACK" \
 out() { aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
   --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
 BUCKET="$(out BucketName)"; DIST="$(out DistributionId)"; URL="$(out PreviewUrl)"
+
+BACKEND_STACK="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["stackName"])' "$(dirname "$FRONTEND")/gallery-backend/preview/deploy.config.json")"
+bout() { aws cloudformation describe-stacks --region "$REGION" --stack-name "$BACKEND_STACK" \
+  --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text 2>/dev/null || true; }
+export REACT_APP_API_ENDPOINT="${REACT_APP_API_ENDPOINT:-$(bout ApiEndpoint)}"
+export REACT_APP_USER_AGREEMENT_ENDPOINT="${REACT_APP_USER_AGREEMENT_ENDPOINT:-$(bout ApiUrl)}"
+echo "API endpoint: ${REACT_APP_API_ENDPOINT:-<none>}"
 
 cd "$FRONTEND"
 [ -d node_modules ] || npm install --no-audit --no-fund

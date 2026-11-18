@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from typing import Dict, Any
 import random
+import re
 
 s3_client = boto3.client('s3')
 ddb_client = boto3.client('dynamodb')
@@ -26,8 +27,11 @@ def create_response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 def generate_image_ojbect_name(uuid: str, user_id: str, theme: str, gender: str, skin: str) -> str:
-    current_time = datetime.now().strftime("%Y%m%d%S")
-    return f"{current_time}-{user_id}-{theme}-{gender}-{skin}-{uuid}"
+    current_time = datetime.now().strftime("%Y%m%d%H%M%S")
+    # The object name is split on '-' downstream, so the user id must not contain dashes
+    # (e.g. Cognito usernames that are UUIDs). The original user id is kept in the process table.
+    safe_user_id = re.sub(r'[^A-Za-z0-9_]', '', user_id) or 'user'
+    return f"{current_time}-{safe_user_id}-{theme}-{gender}-{skin}-{uuid}"
 
 def generate_presigned_url(object_key: str) -> str:
     return s3_client.generate_presigned_url(
@@ -37,7 +41,7 @@ def generate_presigned_url(object_key: str) -> str:
             'Key': object_key, 
             'ContentType': 'image/jpeg'
         },
-        ExpiresIn='300'
+        ExpiresIn=300
     )
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -79,7 +83,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         )
     
         if not ddb_response['Items']:
-            raise Exception(f"Could not find image with theme({theme}) and gender({gender}) and skin({skin})")
+            return create_response(404, {'error': f"No base image found for theme({theme}), gender({gender}) and skin({skin})"})
         
         random_item = random.choice(ddb_response['Items'])
         

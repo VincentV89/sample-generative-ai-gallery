@@ -1,6 +1,7 @@
 import json
 import boto3
 import os
+import urllib.parse
 import urllib.request
 import urllib.error
 import io
@@ -43,6 +44,8 @@ def lambda_handler(event, context):
     theme = process_image_info['theme']['S']
     gender = process_image_info['gender']['S']
     skin = process_image_info['skin']['S']
+    # The object name only carries a sanitized user id; use the original one stored at upload time
+    userId = process_image_info.get('userId', {}).get('S', userId)
     
     try:
         response = ddb_client.query(

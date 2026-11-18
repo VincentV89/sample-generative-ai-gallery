@@ -8,6 +8,12 @@ from boto3.dynamodb.conditions import Key
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(os.environ['DDB_AMAZON_BEDROCK_USER_AGREEMENT_TABLE_NAME'])
 
+CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,PUT,POST,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Content-Length, X-Requested-With'
+}
+
 def handler(event, context):
     try:
         request_body = json.loads(event['body'])
@@ -23,6 +29,7 @@ def handler(event, context):
         if not image_id or not name or agree is None or not saved_at:
             return {
                 'statusCode': 400,
+                'headers': CORS_HEADERS,
                 'body': json.dumps({'message': 'Missing required fields'})
             }
         
@@ -39,12 +46,7 @@ def handler(event, context):
       
         return {
             'statusCode': 200,
-            'headers': {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Credentials': 'true',
-                'Access-Control-Allow-Methods': 'GET,PUT,POST,DELETE,OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Authorization, Content-Length, X-Requested-With'
-            },
+            'headers': CORS_HEADERS,
             'body': json.dumps({'message': 'Item updated successfully'})
         }
     
@@ -52,5 +54,6 @@ def handler(event, context):
         print(f'Error: {str(e)}')
         return {
             'statusCode': 500,
+            'headers': CORS_HEADERS,
             'body': json.dumps({'message': 'Internal server error'})
         }
