@@ -25,6 +25,11 @@ RUN pip install torch torchvision torchaudio --index-url https://download.pytorc
     cd /opt/program/facefusion && \
     pip install -r requirements.txt --no-cache-dir
 
+# Bake the face fusion model weights into the image so endpoint start-up does not depend on
+# downloading them from the ModelScope hub
+ENV MODELSCOPE_CACHE=/opt/modelscope
+RUN python -c "from modelscope.hub.snapshot_download import snapshot_download; print(snapshot_download('damo/cv_unet_face_fusion_torch', revision='v1.0.3'))"
+
 # Verify Python version
 RUN echo "Python version:" && python --version && \
     echo "Python path:" && which python

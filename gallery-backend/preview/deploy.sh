@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 # Deploys the gallery-backend development preview (S3 + DynamoDB + Lambda + API Gateway)
 # and seeds base images. Run gallery-frontend/preview/deploy.sh afterwards to point the
-# frontend at this API. Optionally export FACECHAIN_ENDPOINT_NAME to use a real FaceChain endpoint.
+# frontend at this API. Face swap uses the FaceChain endpoint from preview/deploy_facechain.sh when
+# deployed (or FACECHAIN_ENDPOINT_NAME if exported); otherwise a Pillow composite.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BACKEND="$(dirname "$HERE")"
 REPO="$(dirname "$BACKEND")"
 cfg() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$HERE/deploy.config.json" "$1"; }
 STACK="$(cfg stackName)"; FRONTEND_STACK="$(cfg frontendStackName)"; REGION="$(cfg region)"
+FC_STACK="$(cfg facechainStackName)"
+
+# Use the preview FaceChain GPU endpoint (preview/deploy_facechain.sh) when it is deployed
+if [ -z "${FACECHAIN_ENDPOINT_NAME:-}" ]; then
+  FACECHAIN_ENDPOINT_NAME="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$FC_STACK" \
+    --query "Stacks[0].Outputs[?OutputKey=='EndpointName'].OutputValue" --output text 2>/dev/null || true)"
+  [ "$FACECHAIN_ENDPOINT_NAME" != "None" ] || FACECHAIN_ENDPOINT_NAME=""
+fi
+echo "FaceChain endpoint: ${FACECHAIN_ENDPOINT_NAME:-<none, using preview composite>}"
 
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 ARTIFACTS="bgagent-dev-gallery-9685a0ff05aa-art-$ACCOUNT-$REGION"

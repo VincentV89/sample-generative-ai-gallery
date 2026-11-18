@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Development preview of the FaceChain face-swap GPU endpoint (ECR + CodeBuild image build +
+  SageMaker real-time endpoint). Mirrors stacks/byoc and stacks/facechain. The endpoint is only
+  created once ImageTag is set (deploy_facechain.sh builds the image first, then sets it).
+
+Parameters:
+  DataBucketName:
+    Type: String
+    Description: Backend preview data bucket the endpoint reads source/base images from and writes results to
+  SourceBucketName:
+    Type: String
+    Description: Private artifact bucket holding the zipped byoc/facechain build context
+  SourceObjectKey:
+    Type: String
+    Default: facechain/source.zip
+  ImageTag:
+    Type: String
+    Default: ""
+    Description: Tag of the built FaceChain image in the stack's ECR repo; empty skips the endpoint
+  InstanceType:
+    Type: String
+    Default: ml.g4dn.xlarge
+  InstanceCount:
+    Type: Number
+    Default: 1
+
+Conditions:
+  HasImage: !Not [!Equals [!Ref ImageTag, ""]]
+
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: bgagent-dev-gallery-9685a0ff05aa-facechain
+      EmptyOnDelete: true
+      ImageScanningConfiguration: { ScanOnPush: false }
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules":[{"rulePriority":1,"description":"keep last 3 images",
+          "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":3},
+          "action":{"type":"expire"}}]}
+
+  # ---------- Image build (CodeBuild) ----------
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: facechain-build
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${SourceBucketName}/${SourceObjectKey}"
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !GetAtt Repository.Arn
+              # AWS Deep Learning Container base image
+              - Effect: Allow
+                Action: [ecr:BatchCheckLayerAvailability, ecr:GetDownloadUrlForLayer, ecr:BatchGetImage]
+                Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:763104351884:repository/*"
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: bgagent-dev-gallery-9685a0ff05aa-facechain
+      Description: Builds the FaceChain BYOC inference image for the gallery development preview
+      ServiceRole: !GetAtt BuildRole.Arn
+      TimeoutInMinutes: 120
+      Artifacts: { Type: NO_ARTIFACTS }
+      Source:
+        Type: S3
+        Location: !Sub "${SourceBucketName}/${SourceObjectKey}"
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - export ECR_REGISTRY=763104351884.dkr.ecr.${AWS_REGION}.amazonaws.com
+                - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+                - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ECR_REPO%%/*}
+                - IMAGE_TAG_OUT=${IMAGE_TAG_OUT:-$(date +%Y%m%d%H%M%S)}
+            build:
+              commands:
+                - docker build --build-arg ECR_REGISTRY=$ECR_REGISTRY --build-arg ECR_REPOSITORY=$BASE_REPOSITORY --build-arg IMAGE_TAG=$BASE_TAG -t $ECR_REPO:$IMAGE_TAG_OUT .
+            post_build:
+              commands:
+                - test "$CODEBUILD_BUILD_SUCCEEDING" = "1"
+                - docker push $ECR_REPO:$IMAGE_TAG_OUT
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_LARGE
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - { Name: ECR_REPO, Value: !GetAtt Repository.RepositoryUri }
+          - { Name: BASE_REPOSITORY, Value: huggingface-pytorch-inference }
+          - { Name: BASE_TAG, Value: 1.13.1-transformers4.26.0-gpu-py39-cu117-ubuntu20.04 }
+
+  # ---------- SageMaker endpoint ----------
+  EndpointRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: sagemaker.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: facechain-endpoint
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${DataBucketName}/*"
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action: [ecr:BatchCheckLayerAvailability, ecr:GetDownloadUrlForLayer, ecr:BatchGetImage]
+                Resource: !GetAtt Repository.Arn
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*"
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+
+  Model:
+    Type: AWS::SageMaker::Model
+    Condition: HasImage
+    Properties:
+      ExecutionRoleArn: !GetAtt EndpointRole.Arn
+      PrimaryContainer:
+        Image: !Sub "${Repository.RepositoryUri}:${ImageTag}"
+        Mode: SingleModel
+        Environment:
+          MODEL_SERVER_TIMEOUT: "120"
+
+  EndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Condition: HasImage
+    Properties:
+      ProductionVariants:
+        - VariantName: FaceChainVariant
+          ModelName: !GetAtt Model.ModelName
+          InstanceType: !Ref InstanceType
+          InitialInstanceCount: !Ref InstanceCount
+          InitialVariantWeight: 1
+          ContainerStartupHealthCheckTimeoutInSeconds: 1800
+
+  Endpoint:
+    Type: AWS::SageMaker::Endpoint
+    Condition: HasImage
+    Properties:
+      EndpointName: bgagent-dev-gallery-9685a0ff05aa-facechain
+      EndpointConfigName: !GetAtt EndpointConfig.EndpointConfigName
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri
+  BuildProjectName:
+    Value: !Ref BuildProject
+  EndpointName:
+    Condition: HasImage
+    Value: !GetAtt Endpoint.EndpointName

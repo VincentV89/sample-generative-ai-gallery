@@ -3,10 +3,12 @@ import boto3
 import os
 import urllib.parse
 from io import BytesIO
+from botocore.config import Config
 
 ddb_client = boto3.client('dynamodb')
 s3_client = boto3.client('s3')
-sagemaker_runtime = boto3.client('sagemaker-runtime')
+# Face fusion can take tens of seconds on a cold GPU; don't let the SDK retry (and re-run) it
+sagemaker_runtime = boto3.client('sagemaker-runtime', config=Config(read_timeout=70, connect_timeout=10, retries={'max_attempts': 1}))
 
 BUCKET_NAME = os.environ['BUCKET_NAME']
 RESULT_OBJECT_PATH = os.environ['RESULT_OBJECT_PATH']
@@ -59,11 +61,21 @@ def lambda_handler(event, context):
             'body': json.dumps('Preview composite complete')
         }
 
-    sagemaker_runtime.invoke_endpoint(
-        EndpointName=FACECHAIN_SAGEMAKER_ENDPOINT_NAME,
-        ContentType='application/json',
-        Body=json.dumps(request_body)
-    )
+    try:
+        sagemaker_runtime.invoke_endpoint(
+            EndpointName=FACECHAIN_SAGEMAKER_ENDPOINT_NAME,
+            ContentType='application/json',
+            Body=json.dumps(request_body)
+        )
+    except Exception as e:
+        # Keep the user flow alive (the display page waits for a result image) if the GPU
+        # endpoint is unavailable; the error stays visible in the logs.
+        print(f"ERROR: FaceChain endpoint {FACECHAIN_SAGEMAKER_ENDPOINT_NAME} failed for {uuid}: {e!r}; writing composite instead")
+        write_preview_composite(source_object_key, target_object_key, output_object_key)
+        return {
+            'statusCode': 200,
+            'body': json.dumps('Face swap endpoint failed, composite written')
+        }
     
     return {
         'statusCode': 200,
