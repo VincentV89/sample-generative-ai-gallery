@@ -1,0 +1,8 @@
+{
+  "stackName": "bgagent-dev-vincentv89-sample-generative-ai-gallery-2b9ff548c7d4",
+  "region": "us-east-1",
+  "textModelId": "global.anthropic.claude-opus-5-5",
+  "textModelRegion": "us-east-1",
+  "imageModelId": "stability.stable-image-ultra-v1:1",
+  "imageModelRegion": "us-west-2"
+}

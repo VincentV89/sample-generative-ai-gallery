@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Time-Travel Portrait Studio · Generative AI Gallery on Amazon Bedrock</title>
+  <meta name="description" content="Step into any era. Claude Opus 5.5 writes your story, Stable Image Ultra paints your portrait — a serverless generative AI gallery on Amazon Bedrock.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖼️</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/"><span class="brand-mark">◆</span> Time-Travel Portrait Studio</a>
+    <nav>
+      <a href="#/" data-nav="studio">Studio</a>
+      <a href="#/gallery" data-nav="gallery">Gallery</a>
+      <a href="#/wall" data-nav="wall">Exhibition mode</a>
+    </nav>
+  </header>
+
+  <main id="view-studio" class="view">
+    <section class="hero">
+      <p class="eyebrow">A serverless generative AI gallery on Amazon Bedrock</p>
+      <h1>Step into any era.<br><em>Become its portrait.</em></h1>
+      <p class="lede">Choose a moment in history (or the future). <strong>Claude Opus 5.5</strong> invents your character, writes the story and directs the artwork.
+        <strong>Stable Image Ultra</strong> paints it. Then it goes up on the gallery wall.</p>
+    </section>
+
+    <section class="studio">
+      <form id="studio-form" class="panel" autocomplete="off">
+        <fieldset>
+          <legend><span class="step">1</span> Choose an era</legend>
+          <div id="era-options" class="chips chips-era" role="radiogroup" aria-label="Era"></div>
+        </fieldset>
+        <fieldset>
+          <legend><span class="step">2</span> Choose a role</legend>
+          <div id="role-options" class="chips" role="radiogroup" aria-label="Role"></div>
+        </fieldset>
+        <fieldset>
+          <legend><span class="step">3</span> Choose an art style</legend>
+          <div id="style-options" class="chips" role="radiogroup" aria-label="Art style"></div>
+        </fieldset>
+        <fieldset>
+          <legend><span class="step">4</span> Add a twist <span class="optional">(optional)</span></legend>
+          <label class="sr-only" for="idea">Your idea</label>
+          <textarea id="idea" name="idea" rows="2" placeholder="e.g. secretly a poet who collects maps of imaginary islands"></textarea>
+          <div class="hint"><span id="idea-count">0</span>/<span id="idea-max">200</span></div>
+        </fieldset>
+        <div class="actions">
+          <button type="button" id="surprise" class="btn ghost">🎲 Surprise me</button>
+          <button type="submit" id="generate" class="btn primary">Paint my portrait</button>
+        </div>
+        <p id="form-error" class="error" role="alert" hidden></p>
+      </form>
+
+      <div id="stage" class="panel stage" aria-live="polite">
+        <div id="stage-empty" class="stage-empty">
+          <div class="frame frame-empty"><div class="canvas-placeholder">Your portrait will appear here</div></div>
+        </div>
+        <div id="stage-progress" class="stage-progress" hidden>
+          <div class="frame"><div class="canvas-placeholder shimmer"></div></div>
+          <ol class="pipeline">
+            <li data-stage="queued"><span class="dot"></span>Request received</li>
+            <li data-stage="directing"><span class="dot"></span><strong>Claude Opus 5.5</strong> is inventing your character &amp; story</li>
+            <li data-stage="painting"><span class="dot"></span><strong>Stable Image Ultra</strong> is painting your portrait</li>
+            <li data-stage="done"><span class="dot"></span>Hanging it in the gallery</li>
+          </ol>
+          <p id="progress-title" class="progress-title"></p>
+        </div>
+        <div id="stage-result" hidden></div>
+      </div>
+    </section>
+
+    <section class="how">
+      <h2>How it works</h2>
+      <ol class="how-grid">
+        <li><span>☁️</span><h3>Amazon CloudFront + S3</h3><p>Serves the static app and every portrait from a private bucket via Origin Access Control.</p></li>
+        <li><span>⚡</span><h3>API Gateway + Lambda</h3><p>Validates the request and starts an async worker, so there are no servers to manage.</p></li>
+        <li><span>🧠</span><h3>Claude Opus 5.5</h3><p>Acts as the art director: invents a fictional character, story and palette, writes the image prompt, and screens unsafe ideas.</p></li>
+        <li><span>🎨</span><h3>Stable Image Ultra</h3><p>Stability AI's flagship model on Amazon Bedrock paints the final portrait.</p></li>
+      </ol>
+    </section>
+  </main>
+
+  <main id="view-gallery" class="view" hidden>
+    <section class="gallery-head">
+      <h1>The Gallery</h1>
+      <p class="lede">Every portrait here was created by a visitor in seconds. Click one to read its story.</p>
+    </section>
+    <div id="gallery-grid" class="gallery-grid"></div>
+    <div class="center"><button id="gallery-more" class="btn ghost" hidden>Load more</button></div>
+    <p id="gallery-empty" class="center muted" hidden>No portraits yet. <a href="#/">Paint the first one →</a></p>
+  </main>
+
+  <main id="view-portrait" class="view" hidden>
+    <div id="portrait-detail"></div>
+  </main>
+
+  <main id="view-wall" class="view wall" hidden>
+    <div id="wall-slide" class="wall-slide"></div>
+    <div class="wall-cta">Create yours at the studio · Powered by Amazon Bedrock</div>
+  </main>
+
+  <footer class="footer">
+    Built with Amazon Bedrock (Claude Opus 5.5 · Stable Image Ultra), AWS Lambda, Amazon API Gateway, Amazon DynamoDB, Amazon S3 &amp; Amazon CloudFront.
+    All characters are fictional and AI-generated.
+  </footer>
+
+  <template id="tpl-card">
+    <a class="card">
+      <img loading="lazy" alt="">
+      <div class="card-meta"><h3></h3><p></p></div>
+    </a>
+  </template>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
