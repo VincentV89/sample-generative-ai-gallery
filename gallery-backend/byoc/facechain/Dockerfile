@@ -35,8 +35,11 @@ RUN python /opt/download_model.py damo/cv_unet_face_fusion_torch v1.0.3 "$FACE_F
     sed -i "s#det_model_id = 'damo/cv_ddsar_face-detection_iclr23-damofd'#det_model_id = '$FACE_DETECTION_MODEL_DIR'#" \
       "$FACE_FUSION_MODEL_DIR/ms_wrapper.py" && \
     grep -q "det_model_id = '$FACE_DETECTION_MODEL_DIR'" "$FACE_FUSION_MODEL_DIR/ms_wrapper.py"
-# Fail the build (not the endpoint start-up) if the pipeline cannot be constructed; runs on CPU here
-RUN python -c "import os; from modelscope.pipelines import pipeline; \
+# Fail the build (not the endpoint start-up) if the pipeline cannot be constructed. The build host
+# has no GPU, so checkpoints saved on CUDA are mapped to the CPU for this check only.
+RUN python -c "import os, functools, torch; \
+    torch.load = functools.partial(torch.load, map_location='cpu'); \
+    from modelscope.pipelines import pipeline; \
     pipeline('face_fusion_torch', model=os.environ['FACE_FUSION_MODEL_DIR']); print('face fusion pipeline OK')"
 
 # Verify Python version
