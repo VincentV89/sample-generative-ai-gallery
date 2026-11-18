@@ -9,10 +9,16 @@ How a portrait is made:
 
 1. In the browser, the photo is cropped to 2:3, resized to about 1 MP and re-encoded as JPEG, which also strips EXIF and location data.
 2. **Claude Opus 5.5** (`global.anthropic.claude-opus-5-5`) acts as the *art director*. It looks at the photo and describes the sitter's visible features (hair, glasses, expression, pose) without identifying them. It then invents the character, backstory, title, caption and palette, and writes the image prompt. It also screens unsafe photos and ideas, including prompt-injection attempts.
-3. The *painter*:
-   - With a photo: **Stable Image Control Structure** (`us.stability.stable-image-control-structure-v1:0`, from `us-west-2`) repaints the photo and keeps the face, pose and composition. The likeness setting (Artistic / Balanced / Faithful) maps to `control_strength` 0.45 / 0.6 / 0.75. Stable Image Ultra on Bedrock is text-to-image only.
-   - Without a photo: **Stable Image Ultra** (`stability.stable-image-ultra-v1:1`) paints a fictional character from text.
-4. The portrait goes up on the gallery and the display. The visitor's original photo is deleted as soon as the job finishes, and an S3 lifecycle rule on `uploads/` (1 day) is the backstop.
+3. The *painter*: **Stable Image Ultra** (`stability.stable-image-ultra-v1:1`, from `us-west-2`) paints the character from Claude's prompt.
+4. The *face swap* (photo only): **[AlphaFace](https://github.com/andrewyu90/Alphaface_Official)** runs on an **Amazon SageMaker real-time endpoint** (`ml.g5.xlarge`, PyTorch DLC). It places the visitor's face into the painting. AlphaFace is a real-time GAN face swapper that handles different head poses (Yu et al., 2026, [arXiv:2601.16429](https://arxiv.org/abs/2601.16429), MIT). The endpoint:
+   1. detects faces with OpenCV YuNet,
+   2. FFHQ-aligns the faces from 5 landmarks,
+   3. swaps the 256 px face crop (ArcFace R50 identity),
+   4. colour-matches the face to the painting (LAB transfer) and pastes it back with a feathered mask.
+
+   The likeness setting (Artistic / Balanced / Faithful) maps to a swap blend of 0.7 / 0.88 / 1.0.
+   - **Fallback:** if the endpoint finds no usable face (or is unavailable), the photo is repainted with **Stable Image Control Structure** (`us.stability.stable-image-control-structure-v1:0`, `control_strength` 0.45 / 0.6 / 0.75). Set `faceSwap.enabled: false` in `deploy.config.json` to skip SageMaker completely.
+5. The portrait goes up on the gallery and the display. The visitor's original photo is deleted as soon as the job finishes, and an S3 lifecycle rule on `uploads/` (1 day) is the backstop.
 
 ## Architecture
 
@@ -24,6 +30,7 @@ Browser ──► CloudFront ──┬─ /*          ──► S3 (site, privat
                                                                        ▼
                                    DynamoDB ◄── Lambda (worker.py) ──► Bedrock: Claude Opus 5.5
                                                          │             Bedrock: Stable Image Ultra
+                                                         │             SageMaker: AlphaFace endpoint (face swap)
                                                          └──► S3 gallery/<id>.jpg
 ```
 
@@ -48,9 +55,23 @@ Prerequisites:
 - Node.js 18+ and the AWS CLI v2.
 - An account where CDK is bootstrapped in the target region.
 - Bedrock model access to Claude Opus 5.5 (us-east-1, global profile), Stable Image Ultra (us-west-2) and Stable Image Control Structure (US cross-region profile, us-west-2).
+- Python 3 and git (to build the AlphaFace model artifact), and SageMaker quota for one `ml.g5.xlarge` endpoint instance in the target region.
 
 ```bash
-./deploy.sh            # reads deploy.config.json (stack name, region, model IDs)
+./deploy.sh            # reads deploy.config.json (stack name, region, model IDs, faceSwap)
+```
+
+When `faceSwap.enabled` is true, `deploy.sh` first runs `sagemaker/alphaface/build_model.sh`. That script downloads the AlphaFace demo checkpoint and the ArcFace R50 encoder from the Google Drive links in the official AlphaFace README, plus the YuNet detector. It pins the upstream code at commit `d41fbd4` and builds `sagemaker/alphaface/build/model.tar.gz` (~650 MB, cached and git-ignored). CDK uploads the archive as an asset and creates the SageMaker model, endpoint config and endpoint. A first deploy takes about 10 minutes longer while the GPU endpoint starts.
+
+> **Cost:** the `ml.g5.xlarge` endpoint is billed per hour while it runs, even when idle. Destroy the stack, or set `faceSwap.enabled: false` and redeploy, when the demo isn't in use.
+>
+> **Licences:** the AlphaFace code is MIT. The ArcFace `w600k_r50` identity weights come from InsightFace, whose pretrained models are for non-commercial research use. Check the licences before any commercial use.
+
+Local smoke test of the face swap (CPU is fine, ~15 s):
+
+```bash
+./sagemaker/alphaface/build_model.sh
+python sagemaker/alphaface/build/model/code/inference.py sagemaker/alphaface/build/model selfie.jpg painting.jpg out.jpg
 ```
 
 The script prints the CloudFront URL. To switch models, edit `deploy.config.json`.
@@ -58,7 +79,7 @@ The script prints the CloudFront URL. To switch models, edit `deploy.config.json
 ## Test
 
 ```bash
-python3 -m unittest discover -s tests -v      # API validation / worker parsing (needs boto3)
+python3 -m unittest discover -s tests -v      # API validation / worker pipeline incl. face-swap fallback (needs boto3)
 cd infra && npm install && npx tsc && npx cdk synth -q
 ```
 

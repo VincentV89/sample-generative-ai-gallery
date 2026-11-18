@@ -2,7 +2,7 @@
 
 ![](./docs/images/sample.jpg)
 
-> **New: [gallery-serverless](./gallery-serverless/README.md).** A fully serverless *Time-Travel Portrait Studio* (CloudFront + S3 + API Gateway + Lambda + DynamoDB). Claude Opus 5.5 writes each character's story and art direction, and Stable Image Ultra paints the portrait. It deploys with one command: `gallery-serverless/deploy.sh`.
+> **New: [gallery-serverless](./gallery-serverless/README.md).** A fully serverless *Time-Travel Portrait Studio* (CloudFront + S3 + API Gateway + Lambda + DynamoDB). Claude Opus 5.5 writes each character's story and art direction, Stable Image Ultra paints the portrait, and AlphaFace on Amazon SageMaker swaps the visitor's face in. It deploys with one command: `gallery-serverless/deploy.sh`.
 
 This repository contains three interconnected projects that together form an AI-powered image gallery application:
 
