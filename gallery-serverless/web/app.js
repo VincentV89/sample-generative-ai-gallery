@@ -26,7 +26,74 @@
     return body;
   };
 
-  const state = { options: null, selection: { era: null, role: null, style: null }, polling: null, wallTimer: null };
+  const state = {
+    options: null,
+    selection: { era: null, role: null, style: null, likeness: 'balanced' },
+    photo: null, // JPEG data URL, centre-cropped to 2:3 in the browser
+    displayTimers: [],
+  };
+
+  // ---------- photo upload ----------
+  const PHOTO_W = 832;
+  const PHOTO_H = 1248; // 2:3 portrait, ~1 MP: what the painter is given
+
+  const loadImage = (file) => new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file could not be read as an image. Try a JPEG or PNG.')); };
+    img.src = url;
+  });
+
+  // Centre-crop to 2:3, resize and re-encode as JPEG (also strips EXIF/location metadata).
+  const preparePhoto = async (file) => {
+    if (!file.type.startsWith('image/') && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
+      throw new Error('Please choose an image file.');
+    }
+    const img = await loadImage(file);
+    const sw = img.naturalWidth;
+    const sh = img.naturalHeight;
+    if (sw < 256 || sh < 256) throw new Error('That photo is too small. Please use one at least 256 px wide.');
+    const target = PHOTO_W / PHOTO_H;
+    let cw = sw;
+    let ch = sh;
+    if (sw / sh > target) cw = Math.round(sh * target); else ch = Math.round(sw / target);
+    // Keep faces in frame: crop horizontally from the centre, vertically from slightly above centre.
+    const cx = Math.round((sw - cw) / 2);
+    const cy = Math.round((sh - ch) * 0.35);
+    const scale = Math.min(1, PHOTO_W / cw);
+    const canvas = el('canvas');
+    canvas.width = Math.max(256, Math.round(cw * scale));
+    canvas.height = Math.max(384, Math.round(ch * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, cx, cy, cw, ch, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.88);
+  };
+
+  const setPhoto = (dataUrl) => {
+    state.photo = dataUrl;
+    $('#photo-preview').hidden = !dataUrl;
+    $('#photo-remove').hidden = !dataUrl;
+    $('#likeness-step').hidden = !dataUrl;
+    $('#consent-row').hidden = !dataUrl;
+    $('#twist-step').textContent = dataUrl ? '6' : '5';
+    if (dataUrl) $('#photo-img').src = dataUrl;
+    else $('#photo-img').removeAttribute('src');
+    $('#consent').checked = false;
+  };
+
+  const onPhotoChosen = async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    showError('');
+    try {
+      setPhoto(await preparePhoto(file));
+    } catch (err) {
+      showError(err.message);
+    }
+  };
 
   // ---------- studio ----------
   const renderChips = (containerId, kind, items) => {
@@ -78,17 +145,22 @@
   const generate = async (ev) => {
     ev.preventDefault();
     showError('');
-    const { era, role, style } = state.selection;
+    const { era, role, style, likeness } = state.selection;
     if (!era || !role || !style) { showError('Pick an era, a role and an art style (or hit “Surprise me”).'); return; }
+    if (state.photo && !$('#consent').checked) { showError('Please tick the photo consent box (or remove your photo).'); return; }
     const button = $('#generate');
     button.disabled = true;
     button.textContent = 'Painting…';
     setStage('progress');
     updatePipeline('queued');
+    if (window.matchMedia('(max-width: 960px)').matches) $('#stage').scrollIntoView({ behavior: 'smooth', block: 'start' });
     try {
       const { id } = await api('/portraits', {
         method: 'POST',
-        body: JSON.stringify({ era, role, style, idea: $('#idea').value.trim() }),
+        body: JSON.stringify({
+          era, role, style, idea: $('#idea').value.trim(),
+          ...(state.photo ? { photo: state.photo, consent: true, likeness } : {}),
+        }),
       });
       const portrait = await poll(id);
       renderResult(portrait);
@@ -136,7 +208,8 @@
       el(headingTag, { text: p.title || 'Untitled' }),
       el('p', { class: 'caption', text: p.caption || '' }),
       el('div', { class: 'tags' },
-        [p.eraLabel, p.roleLabel, p.styleLabel].filter(Boolean).map((t) => el('span', { class: 'tag', text: t }))),
+        [p.eraLabel, p.roleLabel, p.styleLabel, p.fromPhoto ? '📷 From a visitor photo' : null]
+          .filter(Boolean).map((t) => el('span', { class: 'tag', text: t }))),
       el('p', { class: 'story', text: p.story || '' }),
       palette,
       el('details', {},
@@ -151,7 +224,9 @@
 
   const renderResult = (p) => {
     const root = $('#stage-result');
-    root.replaceChildren(framed(p), portraitInfo(p));
+    root.replaceChildren(framed(p),
+      el('p', { class: 'on-display', text: '✨ Your portrait is now on the gallery display. Look up!' }),
+      portraitInfo(p));
     setStage('result');
     galleryCache = null; // new item: refresh gallery next time
   };
@@ -204,38 +279,87 @@
     }
   };
 
-  // ---------- exhibition wall (kiosk) ----------
-  const startWall = async () => {
-    const root = $('#wall-slide');
+  // ---------- gallery display (kiosk screen with QR code) ----------
+  const SLIDE_MS = 12000;
+  const createUrl = () => `${location.origin}${location.pathname}#/create`;
+
+  const renderQr = () => {
+    const img = $('#display-qr-img');
+    if (typeof window.qrcode !== 'function') { img.closest('aside').hidden = true; return; }
+    const qr = window.qrcode(0, 'M');
+    qr.addData(createUrl());
+    qr.make();
+    img.src = qr.createDataURL(8, 2);
+  };
+
+  const slide = (p, isNew) => {
+    const bg = el('img', { class: 'display-bg', src: p.imageUrl, alt: '' });
+    bg.setAttribute('aria-hidden', 'true');
+    const caption = el('div', { class: 'display-caption' },
+      isNew ? el('span', { class: 'display-new', text: 'New arrival' }) : null,
+      el('h1', { text: p.title || 'Untitled' }),
+      el('p', { class: 'display-story', text: p.story || p.caption || '' }),
+      el('p', { class: 'display-meta', text: [p.eraLabel, p.roleLabel, p.styleLabel].filter(Boolean).join(' · ') }));
+    return el('figure', { class: 'display-slide' }, bg,
+      el('img', { class: 'display-art', src: p.imageUrl, alt: p.title || 'AI portrait' }), caption);
+  };
+
+  const startDisplay = async () => {
+    const stage = $('#display-stage');
+    const bar = $('#display-progress-bar');
+    renderQr();
+    const seen = new Set();
+    let first = true;
     let i = 0;
     const tick = async () => {
       try {
         galleryCache = null;
         const items = await loadGallery();
-        if (!items.length) { root.replaceChildren(el('p', { class: 'muted', text: 'Waiting for the first portrait…' })); return; }
-        const p = items[i % items.length];
-        i += 1;
-        root.replaceChildren(framed(p), portraitInfo(p, { headingTag: 'h1', withActions: false }));
+        if (!items.length) {
+          stage.replaceChildren(el('div', { class: 'display-waiting' },
+            el('h1', { text: 'Your portrait could hang here.' }),
+            el('p', { text: 'Scan the QR code to upload a selfie and step into history.' })));
+          return;
+        }
+        // Newly finished portraits jump the queue so visitors see theirs straight away.
+        const fresh = first ? [] : items.filter((p) => !seen.has(p.id));
+        items.forEach((p) => seen.add(p.id));
+        first = false;
+        let p;
+        if (fresh.length) { p = fresh[fresh.length - 1]; i = 0; } else { p = items[i % items.length]; i += 1; }
+        const next = slide(p, fresh.length > 0);
+        const art = next.querySelector('.display-art');
+        await new Promise((resolve) => { art.onload = resolve; art.onerror = resolve; setTimeout(resolve, 4000); });
+        const prev = stage.firstElementChild;
+        stage.append(next);
+        requestAnimationFrame(() => next.classList.add('show'));
+        if (prev) setTimeout(() => prev.remove(), 1200);
+        bar.classList.remove('run');
+        void bar.offsetWidth; // restart the progress animation
+        bar.style.animationDuration = `${SLIDE_MS}ms`;
+        bar.classList.add('run');
       } catch (err) {
-        root.replaceChildren(el('p', { class: 'error', text: err.message }));
+        if (!stage.firstElementChild) stage.replaceChildren(el('p', { class: 'error', text: err.message }));
       }
     };
     await tick();
-    state.wallTimer = setInterval(tick, 9000);
+    state.displayTimers.push(setInterval(tick, SLIDE_MS));
   };
 
   // ---------- router ----------
   const route = () => {
-    clearInterval(state.wallTimer);
+    state.displayTimers.forEach(clearInterval);
+    state.displayTimers = [];
     const hash = location.hash || '#/';
     const [, view, arg] = hash.match(/^#\/([^/]*)\/?(.*)$/) || [];
-    const name = view === 'gallery' ? 'gallery' : view === 'p' ? 'portrait' : view === 'wall' ? 'wall' : 'studio';
-    document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== `view-${name}`; });
+    const name = { gallery: 'gallery', p: 'portrait', display: 'display', wall: 'display' }[view] || 'studio';
+    document.querySelectorAll('.view, .display').forEach((v) => { v.hidden = v.id !== `view-${name}`; });
+    document.body.classList.toggle('kiosk', name === 'display');
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === name));
     if (name !== 'portrait') document.title = 'Time-Travel Portrait Studio · Generative AI Gallery on Amazon Bedrock';
     if (name === 'gallery') showGallery();
     if (name === 'portrait') showPortrait(arg);
-    if (name === 'wall') startWall();
+    if (name === 'display') startDisplay();
     window.scrollTo(0, 0);
   };
 
@@ -244,6 +368,9 @@
     $('#studio-form').addEventListener('submit', generate);
     $('#surprise').addEventListener('click', surprise);
     $('#gallery-more').addEventListener('click', () => showGallery(true));
+    $('#photo-camera').addEventListener('change', onPhotoChosen);
+    $('#photo-file').addEventListener('change', onPhotoChosen);
+    $('#photo-remove').addEventListener('click', () => setPhoto(null));
     const idea = $('#idea');
     idea.addEventListener('input', () => { $('#idea-count').textContent = idea.value.length; });
     route();
@@ -252,6 +379,9 @@
       renderChips('era-options', 'era', state.options.eras);
       renderChips('role-options', 'role', state.options.roles);
       renderChips('style-options', 'style', state.options.styles);
+      renderChips('likeness-options', 'likeness', (state.options.likeness || []).map((l) => ({ ...l, years: l.hint })));
+      state.selection.likeness = state.options.defaultLikeness || 'balanced';
+      select('likeness', state.selection.likeness);
       idea.maxLength = state.options.maxIdeaLength;
       $('#idea-max').textContent = state.options.maxIdeaLength;
     } catch (err) {

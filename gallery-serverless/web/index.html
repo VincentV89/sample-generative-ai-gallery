@@ -12,9 +12,9 @@
   <header class="topbar">
     <a class="brand" href="#/"><span class="brand-mark">◆</span> Time-Travel Portrait Studio</a>
     <nav>
-      <a href="#/" data-nav="studio">Studio</a>
+      <a href="#/create" data-nav="studio">Create</a>
       <a href="#/gallery" data-nav="gallery">Gallery</a>
-      <a href="#/wall" data-nav="wall">Exhibition mode</a>
+      <a href="#/display" data-nav="display">Gallery display</a>
     </nav>
   </header>
 
@@ -22,30 +22,54 @@
     <section class="hero">
       <p class="eyebrow">A serverless generative AI gallery on Amazon Bedrock</p>
       <h1>Step into any era.<br><em>Become its portrait.</em></h1>
-      <p class="lede">Choose a moment in history (or the future). <strong>Claude Opus 5.5</strong> invents your character, writes the story and directs the artwork.
-        <strong>Stable Image Ultra</strong> paints it. Then it goes up on the gallery wall.</p>
+      <p class="lede">Upload a photo and choose a moment in history (or the future). <strong>Claude Opus 5.5</strong> looks at your photo, invents your character, writes the story and directs the artwork.
+        <strong>Stability AI</strong> paints you into it. Then it goes up on the gallery display.</p>
     </section>
 
     <section class="studio">
       <form id="studio-form" class="panel" autocomplete="off">
+        <fieldset class="photo-step">
+          <legend><span class="step">1</span> Add your photo <span class="optional">(recommended)</span></legend>
+          <div class="photo-picker">
+            <div id="photo-preview" class="photo-preview" hidden><img id="photo-img" alt="Your photo preview"></div>
+            <div class="photo-buttons">
+              <label class="btn primary file-btn">📷 Take a selfie
+                <input id="photo-camera" type="file" accept="image/*" capture="user" class="sr-only">
+              </label>
+              <label class="btn ghost file-btn">🖼️ Upload a picture
+                <input id="photo-file" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" class="sr-only">
+              </label>
+              <button type="button" id="photo-remove" class="btn ghost" hidden>✕ Remove photo</button>
+            </div>
+            <p id="photo-hint" class="hint left">A clear, front-facing photo of one person works best. Without a photo, Claude invents a character for you.</p>
+          </div>
+        </fieldset>
         <fieldset>
-          <legend><span class="step">1</span> Choose an era</legend>
+          <legend><span class="step">2</span> Choose an era</legend>
           <div id="era-options" class="chips chips-era" role="radiogroup" aria-label="Era"></div>
         </fieldset>
         <fieldset>
-          <legend><span class="step">2</span> Choose a role</legend>
+          <legend><span class="step">3</span> Choose a role</legend>
           <div id="role-options" class="chips" role="radiogroup" aria-label="Role"></div>
         </fieldset>
         <fieldset>
-          <legend><span class="step">3</span> Choose an art style</legend>
+          <legend><span class="step">4</span> Choose an art style</legend>
           <div id="style-options" class="chips" role="radiogroup" aria-label="Art style"></div>
         </fieldset>
+        <fieldset id="likeness-step" hidden>
+          <legend><span class="step">5</span> How much like your photo?</legend>
+          <div id="likeness-options" class="chips" role="radiogroup" aria-label="Likeness"></div>
+        </fieldset>
         <fieldset>
-          <legend><span class="step">4</span> Add a twist <span class="optional">(optional)</span></legend>
+          <legend><span class="step" id="twist-step">5</span> Add a twist <span class="optional">(optional)</span></legend>
           <label class="sr-only" for="idea">Your idea</label>
           <textarea id="idea" name="idea" rows="2" placeholder="e.g. secretly a poet who collects maps of imaginary islands"></textarea>
           <div class="hint"><span id="idea-count">0</span>/<span id="idea-max">200</span></div>
         </fieldset>
+        <label id="consent-row" class="consent" hidden>
+          <input type="checkbox" id="consent">
+          <span>I'm the person in this photo (or have their permission). I agree that the AI portrait can be shown on the public gallery display. The original photo is deleted once the portrait has been painted.</span>
+        </label>
         <div class="actions">
           <button type="button" id="surprise" class="btn ghost">🎲 Surprise me</button>
           <button type="submit" id="generate" class="btn primary">Paint my portrait</button>
@@ -61,8 +85,8 @@
           <div class="frame"><div class="canvas-placeholder shimmer"></div></div>
           <ol class="pipeline">
             <li data-stage="queued"><span class="dot"></span>Request received</li>
-            <li data-stage="directing"><span class="dot"></span><strong>Claude Opus 5.5</strong> is inventing your character &amp; story</li>
-            <li data-stage="painting"><span class="dot"></span><strong>Stable Image Ultra</strong> is painting your portrait</li>
+            <li data-stage="directing"><span class="dot"></span><strong>Claude Opus 5.5</strong> is studying your photo, inventing your character &amp; story</li>
+            <li data-stage="painting"><span class="dot"></span><strong>Stability AI</strong> is painting your portrait</li>
             <li data-stage="done"><span class="dot"></span>Hanging it in the gallery</li>
           </ol>
           <p id="progress-title" class="progress-title"></p>
@@ -77,7 +101,8 @@
         <li><span>☁️</span><h3>Amazon CloudFront + S3</h3><p>Serves the static app and every portrait from a private bucket via Origin Access Control.</p></li>
         <li><span>⚡</span><h3>API Gateway + Lambda</h3><p>Validates the request and starts an async worker, so there are no servers to manage.</p></li>
         <li><span>🧠</span><h3>Claude Opus 5.5</h3><p>Acts as the art director: invents a fictional character, story and palette, writes the image prompt, and screens unsafe ideas.</p></li>
-        <li><span>🎨</span><h3>Stable Image Ultra</h3><p>Stability AI's flagship model on Amazon Bedrock paints the final portrait.</p></li>
+        <li><span>🎨</span><h3>Stability AI on Amazon Bedrock</h3><p><strong>Stable Image Control Structure</strong> repaints your photo in the chosen era and keeps your face and pose. Without a photo, <strong>Stable Image Ultra</strong> paints from text.</p></li>
+        <li><span>📺</span><h3>Gallery display</h3><p>A kiosk screen cycles through the newest portraits and shows a QR code, so visitors can make their own on their phone.</p></li>
       </ol>
     </section>
   </main>
@@ -89,20 +114,26 @@
     </section>
     <div id="gallery-grid" class="gallery-grid"></div>
     <div class="center"><button id="gallery-more" class="btn ghost" hidden>Load more</button></div>
-    <p id="gallery-empty" class="center muted" hidden>No portraits yet. <a href="#/">Paint the first one →</a></p>
+    <p id="gallery-empty" class="center muted" hidden>No portraits yet. <a href="#/create">Paint the first one →</a></p>
   </main>
 
   <main id="view-portrait" class="view" hidden>
     <div id="portrait-detail"></div>
   </main>
 
-  <main id="view-wall" class="view wall" hidden>
-    <div id="wall-slide" class="wall-slide"></div>
-    <div class="wall-cta">Create yours at the studio · Powered by Amazon Bedrock</div>
+  <main id="view-display" class="display" hidden>
+    <div id="display-stage" class="display-stage" aria-live="polite"></div>
+    <aside class="display-qr" aria-label="Create your own portrait">
+      <img id="display-qr-img" alt="QR code: create your own AI portrait">
+      <p><strong>Scan to step into history</strong>Upload a selfie and become the portrait</p>
+    </aside>
+    <div class="display-brand"><span class="brand-mark">◆</span> Time-Travel Portrait Studio · Powered by Amazon Bedrock</div>
+    <div class="display-progress"><span id="display-progress-bar"></span></div>
+    <a class="display-exit" href="#/gallery" aria-label="Exit gallery display">✕</a>
   </main>
 
   <footer class="footer">
-    Built with Amazon Bedrock (Claude Opus 5.5 · Stable Image Ultra), AWS Lambda, Amazon API Gateway, Amazon DynamoDB, Amazon S3 &amp; Amazon CloudFront.
+    Built with Amazon Bedrock (Claude Opus 5.5 · Stable Image Ultra · Stable Image Control Structure), AWS Lambda, Amazon API Gateway, Amazon DynamoDB, Amazon S3 &amp; Amazon CloudFront.
     All characters are fictional and AI-generated.
   </footer>
 
@@ -113,6 +144,7 @@
     </a>
   </template>
 
+  <script src="vendor/qrcode.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
