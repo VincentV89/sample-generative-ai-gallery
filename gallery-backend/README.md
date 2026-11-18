@@ -146,3 +146,25 @@ $ cdk synth
 To add additional dependencies, for example other CDK libraries, just add
 them to your `setup.py` file and rerun the `pip install -r requirements.txt`
 command.
+
+## Development preview
+
+`preview/` deploys a self-contained development copy of the backend with plain CloudFormation
+(no CDK bootstrap needed):
+
+- `template.yaml` – private S3 data bucket (with S3 → Lambda notifications), DynamoDB tables, the
+  upload/get-image/user-agreement Lambdas behind API Gateway (`/apis/images/upload`,
+  `/apis/images/{userId}`, `/agree`), and the face-crop → face-swap → completion pipeline
+- `deploy.config.json` – stack name and region (`us-east-1`)
+- `deploy.sh` – builds a Pillow layer, packages the Lambdas, deploys the stack and seeds base
+  images (sliced from `docs/images/sample.jpg`) for the `ancient_rome` theme and every skin tone
+- `seed_base_resources.py` – the seeding script used by `deploy.sh`
+
+```bash
+./gallery-backend/preview/deploy.sh      # backend first
+./gallery-frontend/preview/deploy.sh     # frontend picks up the API endpoints from the backend stack
+```
+
+The preview does not run the FaceChain SageMaker GPU endpoint. Unless `FACECHAIN_ENDPOINT_NAME`
+points at an existing endpoint, the face-swap Lambda writes a Pillow composite (the user's cropped
+face framed on the base portrait) so the upload → display flow completes end to end.

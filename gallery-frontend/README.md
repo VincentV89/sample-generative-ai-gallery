@@ -146,9 +146,10 @@ This project is licensed under the MIT License.
 - `deploy.sh` – deploys the stack, builds the app with the stack's Cognito IDs, uploads to S3 and invalidates CloudFront
 
 ```bash
-# optionally point at a deployed gallery-backend first:
-# export REACT_APP_API_ENDPOINT=... REACT_APP_USER_AGREEMENT_ENDPOINT=...
+../gallery-backend/preview/deploy.sh   # deploy the backend preview first
 ./preview/deploy.sh
 ```
 
-The preview does not deploy `gallery-backend`, so image upload/generation API calls only work if `REACT_APP_API_ENDPOINT` is set to an existing backend.
+`deploy.sh` reads `ApiEndpoint`/`ApiUrl` from the gallery-backend preview stack and bakes them into the
+build as `REACT_APP_API_ENDPOINT`/`REACT_APP_USER_AGREEMENT_ENDPOINT` (exported values take precedence).
+After an upload, the finish page links to `#/display/<userId>`, which polls for the generated image.
