@@ -136,3 +136,19 @@ The app will be available at `http://localhost:3000`.
 ## License
 
 This project is licensed under the MIT License.
+
+## Development preview
+
+`preview/` contains a self-contained development preview of this frontend:
+
+- `template.yaml` – CloudFormation: private S3 bucket + CloudFront (Origin Access Control) + a Cognito user pool/client for sign-in
+- `deploy.config.json` – stack name and region (`us-east-1`)
+- `deploy.sh` – deploys the stack, builds the app with the stack's Cognito IDs, uploads to S3 and invalidates CloudFront
+
+```bash
+# optionally point at a deployed gallery-backend first:
+# export REACT_APP_API_ENDPOINT=... REACT_APP_USER_AGREEMENT_ENDPOINT=...
+./preview/deploy.sh
+```
+
+The preview does not deploy `gallery-backend`, so image upload/generation API calls only work if `REACT_APP_API_ENDPOINT` is set to an existing backend.
