@@ -5,21 +5,22 @@ from typing import Dict, List
 class AppConfig:
     """Configuration settings for the application."""
     # AWS Configuration
-    BEDROCK_REGION: str = "us-east-1"  # Nova Canvas is only available in us-east-1
+    BEDROCK_REGION: str = "us-east-1"  # Region for Claude (global cross-region inference profile)
+    IMAGE_MODEL_REGION: str = "us-west-2"  # Stable Image Ultra is served from us-west-2
     DYNAMODB_REGION: str = "us-west-2"  # DynamoDB is in us-west-2
     S3_BUCKET: str = 'amazon-bedrock-gallery-global-sheetal'
     S3_PREFIX: str = 'images/base-image/'
     DYNAMODB_TABLE: str = 'ddb-amazon-bedrock-gallery-base-resource'
     
     # Model IDs
-    CLAUDE_MODEL_ID: str = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
-    NOVA_CANVAS_MODEL_ID: str = 'amazon.nova-canvas-v1:0'
+    # Claude Opus 5.5 - the most capable Anthropic model on Amazon Bedrock
+    CLAUDE_MODEL_ID: str = "global.anthropic.claude-opus-5-5"
+    # Stable Image Ultra - Stability AI's highest quality text-to-image model on Amazon Bedrock
+    IMAGE_MODEL_ID: str = "stability.stable-image-ultra-v1:1"
     
     # Image Generation Configuration
-    IMAGE_WIDTH: int = 720
-    IMAGE_HEIGHT: int = 1280
-    CFG_SCALE: float = 8.0
-    NUMBER_OF_IMAGES: int = 1
+    IMAGE_ASPECT_RATIO: str = "9:16"  # portrait (Stable Image Ultra uses aspect ratios)
+    IMAGE_OUTPUT_FORMAT: str = "jpeg"
     IMAGE_GENERATION_DELAY: int = 3  # seconds
 
 # Historical Periods (5 significant eras)
@@ -126,13 +127,13 @@ DISPLAY_NAMES: Dict[str, Dict] = {
 
 # System prompt for Claude
 SYSTEM_PROMPT: str = """
-You are an expert at creating image generation prompts for portrait art. Your task is to generate detailed prompts for Amazon Nova Canvas based on specific historical and artistic parameters. For each set of variables, create a complete portrait concept that includes:
+You are an expert at creating image generation prompts for portrait art. Your task is to generate detailed prompts for Stable Image Ultra based on specific historical and artistic parameters. For each set of variables, create a complete portrait concept that includes:
 
 1. A main image prompt that reads like a caption, not a command
 2. A negative prompt that lists elements to exclude
 3. A brief fictional character backstory
 
-Always format your response as a JSON object with fields for "prompt", "negative_prompt", and "story".
+Always format your response as a single raw JSON object (no markdown code fences) with fields for "prompt", "negative_prompt", and "story".
 
 Remember these key principles for image generation:
 - Image models don't understand negation (words like "no", "not", "without")

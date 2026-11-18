@@ -46,6 +46,13 @@ class ImageGenerator:
             config=Config(read_timeout=300)
         )
         
+        # Stable Image Ultra is served from a different region
+        self.image_client = boto3.client(
+            "bedrock-runtime",
+            region_name=config.IMAGE_MODEL_REGION,
+            config=Config(read_timeout=300)
+        )
+
         # Create S3 client in us-east-1 (same as Bedrock)
         self.s3_client = boto3.client('s3', region_name=config.BEDROCK_REGION)
         
@@ -74,13 +81,9 @@ class ImageGenerator:
         
         native_request = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 1024,
-            "temperature": 0.7,
+            "max_tokens": 4096,
+            "system": SYSTEM_PROMPT,
             "messages": [
-                {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": SYSTEM_PROMPT}],
-                },
                 {
                     "role": "user",
                     "content": [{"type": "text", "text": user_prompt}],
@@ -95,45 +98,48 @@ class ImageGenerator:
             )
             model_response = json.loads(response["body"].read())
             
-            return model_response["content"][0]["text"]
+            # Newer Claude models may return non-text blocks (e.g. thinking) first
+            text = next(
+                block["text"] for block in model_response["content"]
+                if block.get("type") == "text"
+            ).strip()
+            # Tolerate an accidental markdown code fence around the JSON
+            if text.startswith("```"):
+                text = text.strip("`")
+                text = text[text.find("{"):]
+            return text[text.find("{"):text.rfind("}") + 1]
         except Exception as e:
             raise ImageGeneratorError(f"Failed to generate Claude prompt: {e}")
     
-    def _generate_image_with_nova_canvas(self, prompt: str, negative_prompt: str) -> bytes:
-        """Generate an image using Nova Canvas model."""
+    def _generate_image(self, prompt: str, negative_prompt: str) -> bytes:
+        """Generate an image using Stable Image Ultra."""
         body = json.dumps({
-            "taskType": "TEXT_IMAGE",
-            "textToImageParams": {
-                "text": prompt,
-                "negativeText": negative_prompt
-            },
-            "imageGenerationConfig": {
-                "numberOfImages": self.config.NUMBER_OF_IMAGES,
-                "height": self.config.IMAGE_HEIGHT,
-                "width": self.config.IMAGE_WIDTH,
-                "cfgScale": self.config.CFG_SCALE,
-                "seed": random.randint(0, 1000000)
-            }
+            "prompt": prompt[:10000],
+            "negative_prompt": negative_prompt[:10000],
+            "aspect_ratio": self.config.IMAGE_ASPECT_RATIO,
+            "output_format": self.config.IMAGE_OUTPUT_FORMAT,
+            "seed": random.randint(0, 4294967294)
         })
-        
+
         try:
-            response = self.bedrock_client.invoke_model(
-                body=body, 
-                modelId=self.config.NOVA_CANVAS_MODEL_ID, 
-                accept="application/json", 
+            response = self.image_client.invoke_model(
+                body=body,
+                modelId=self.config.IMAGE_MODEL_ID,
+                accept="application/json",
                 contentType="application/json"
             )
             response_body = json.loads(response.get("body").read())
-            
-            if "error" in response_body:
-                raise ImageGeneratorError(f"Nova Canvas error: {response_body['error']}")
-                
-            base64_image = response_body.get("images")[0]
-            base64_bytes = base64_image.encode('ascii')
-            return base64.b64decode(base64_bytes)
+
+            finish_reason = (response_body.get("finish_reasons") or [None])[0]
+            if finish_reason:
+                raise ImageGeneratorError(f"Image generation filtered: {finish_reason}")
+
+            return base64.b64decode(response_body["images"][0])
+        except ImageGeneratorError:
+            raise
         except Exception as e:
             raise ImageGeneratorError(f"Failed to generate image: {e}")
-    
+
     def _save_image_to_s3(self, image_bytes: bytes, object_key: str) -> None:
         """Save image to S3 bucket."""
         try:
@@ -196,8 +202,8 @@ class ImageGenerator:
             )
             response_json = json.loads(claude_response)
             
-            # Generate image using Nova Canvas
-            image_bytes = self._generate_image_with_nova_canvas(
+            # Generate image using Stable Image Ultra
+            image_bytes = self._generate_image(
                 response_json["prompt"],
                 response_json["negative_prompt"]
             )
