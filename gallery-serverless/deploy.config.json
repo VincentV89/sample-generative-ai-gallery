@@ -4,5 +4,7 @@
   "textModelId": "global.anthropic.claude-opus-5-5",
   "textModelRegion": "us-east-1",
   "imageModelId": "stability.stable-image-ultra-v1:1",
-  "imageModelRegion": "us-west-2"
+  "imageModelRegion": "us-west-2",
+  "photoModelId": "us.stability.stable-image-control-structure-v1:0",
+  "photoModelRegion": "us-west-2"
 }

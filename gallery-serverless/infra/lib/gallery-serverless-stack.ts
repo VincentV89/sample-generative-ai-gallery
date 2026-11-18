@@ -19,6 +19,9 @@ export interface GalleryServerlessStackProps extends cdk.StackProps {
   /** Bedrock image model used as the "painter" (e.g. stability.stable-image-ultra-v1:1). */
   readonly imageModelId: string;
   readonly imageModelRegion: string;
+  /** Bedrock photo-to-portrait model / inference profile (e.g. us.stability.stable-image-control-structure-v1:0). */
+  readonly photoModelId: string;
+  readonly photoModelRegion: string;
 }
 
 export class GalleryServerlessStack extends cdk.Stack {
@@ -43,6 +46,9 @@ export class GalleryServerlessStack extends cdk.Stack {
     const imageBucket = new s3.Bucket(this, 'ImageBucket', {
       ...bucketDefaults,
       bucketName: `genai-gallery-images-${this.account}-${this.region}`,
+      // Visitor photos (uploads/) are private (not routed by CloudFront) and deleted by the
+      // worker once a job finishes; this rule is the backstop.
+      lifecycleRules: [{ id: 'ExpireVisitorUploads', prefix: 'uploads/', expiration: cdk.Duration.days(1) }],
     });
 
     const table = new dynamodb.Table(this, 'PortraitTable', {
@@ -67,6 +73,8 @@ export class GalleryServerlessStack extends cdk.Stack {
       TEXT_MODEL_REGION: props.textModelRegion,
       IMAGE_MODEL_ID: props.imageModelId,
       IMAGE_MODEL_REGION: props.imageModelRegion,
+      PHOTO_MODEL_ID: props.photoModelId,
+      PHOTO_MODEL_REGION: props.photoModelRegion,
     };
 
     const worker = new lambda.Function(this, 'WorkerFunction', {
@@ -91,8 +99,8 @@ export class GalleryServerlessStack extends cdk.Stack {
       architecture: lambda.Architecture.ARM_64,
       handler: 'api.handler',
       code,
-      memorySize: 256,
-      timeout: cdk.Duration.seconds(10),
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(15),
       environment: { ...commonEnv, WORKER_FUNCTION_NAME: worker.functionName },
       logGroup: new logs.LogGroup(this, 'ApiLogs', {
         retention: logs.RetentionDays.ONE_WEEK,
@@ -102,11 +110,15 @@ export class GalleryServerlessStack extends cdk.Stack {
 
     table.grantReadWriteData(api);
     table.grantReadWriteData(worker);
-    imageBucket.grantPut(worker);
+    imageBucket.grantPut(worker, 'gallery/*');
+    imageBucket.grantRead(worker, 'uploads/*');
+    imageBucket.grantDelete(worker, 'uploads/*');
+    imageBucket.grantPut(api, 'uploads/*');
     worker.grantInvoke(api);
 
     // Bedrock access: cross-region (global) inference profile for Claude + Stability image model.
     const textFoundationModel = props.textModelId.replace(/^(global|us|eu|apac)\./, '');
+    const photoFoundationModel = props.photoModelId.replace(/^(global|us|eu|apac)\./, '');
     worker.addToRolePolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
       resources: [
@@ -114,6 +126,9 @@ export class GalleryServerlessStack extends cdk.Stack {
         `arn:aws:bedrock:*::foundation-model/${textFoundationModel}`,
         `arn:aws:bedrock:::foundation-model/${textFoundationModel}`,
         `arn:aws:bedrock:${props.imageModelRegion}::foundation-model/${props.imageModelId}`,
+        // Photo model: cross-region inference profile routes to any US region.
+        `arn:aws:bedrock:${props.photoModelRegion}:${this.account}:inference-profile/${props.photoModelId}`,
+        `arn:aws:bedrock:*::foundation-model/${photoFoundationModel}`,
       ],
     }));
 

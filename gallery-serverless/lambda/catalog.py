@@ -53,7 +53,18 @@ STYLES = {
     "watercolor": {"label": "Watercolour", "details": "loose watercolour portrait, soft washes, granulating pigment, white paper glow"},
 }
 
+# How closely a photo-based portrait follows the visitor's photo
+# (Stable Image Control Structure "control_strength").
+LIKENESS = {
+    "artistic": {"label": "Artistic", "hint": "Loose, painterly reinterpretation", "strength": 0.45},
+    "balanced": {"label": "Balanced", "hint": "Recognisably you, fully in period", "strength": 0.6},
+    "faithful": {"label": "Faithful", "hint": "Closest to your photo", "strength": 0.75},
+}
+DEFAULT_LIKENESS = "balanced"
+
 MAX_IDEA_LENGTH = 200
+# Decoded upload size limit; the browser resizes photos to ~1 MP JPEG (~150-400 KB) first.
+MAX_PHOTO_BYTES = 4 * 1024 * 1024
 
 
 def public_options():
@@ -62,5 +73,8 @@ def public_options():
         "eras": [{"id": k, "label": v["label"], "years": v["years"], "emoji": v["emoji"]} for k, v in ERAS.items()],
         "roles": [{"id": k, "label": v} for k, v in ROLES.items()],
         "styles": [{"id": k, "label": v["label"]} for k, v in STYLES.items()],
+        "likeness": [{"id": k, "label": v["label"], "hint": v["hint"]} for k, v in LIKENESS.items()],
+        "defaultLikeness": DEFAULT_LIKENESS,
         "maxIdeaLength": MAX_IDEA_LENGTH,
+        "maxPhotoBytes": MAX_PHOTO_BYTES,
     }

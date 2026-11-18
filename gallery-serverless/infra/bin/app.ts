@@ -19,4 +19,6 @@ new GalleryServerlessStack(app, 'GalleryServerlessStack', {
   textModelRegion: deployConfig.textModelRegion,
   imageModelId: deployConfig.imageModelId,
   imageModelRegion: deployConfig.imageModelRegion,
+  photoModelId: deployConfig.photoModelId,
+  photoModelRegion: deployConfig.photoModelRegion,
 });
