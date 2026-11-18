@@ -2,6 +2,8 @@
 
 ![](./docs/images/sample.jpg)
 
+> **New: [gallery-serverless](./gallery-serverless/README.md).** A fully serverless *Time-Travel Portrait Studio* (CloudFront + S3 + API Gateway + Lambda + DynamoDB). Claude Opus 5.5 writes each character's story and art direction, and Stable Image Ultra paints the portrait. It deploys with one command: `gallery-serverless/deploy.sh`.
+
 This repository contains three interconnected projects that together form an AI-powered image gallery application:
 
 1. **gallery-backend**: Backend infrastructure and APIs
@@ -18,7 +20,7 @@ Key Components:
 
 - [AWS Amplify](https://aws.amazon.com/amplify/): Provides frontend application hosting (using React).
 - [Amazon API Gateway](https://aws.amazon.com/api-gateway/) + [AWS Lambda](https://aws.amazon.com/lambda/): Used as backend API endpoints for image retrieval and upload.
-- [Amazon Bedrock](https://aws.amazon.com/bedrock/): A managed service that utilizes foundation models through APIs. It uses the Amazon Nova Canvas model for image generation and the Claude 3.5 Sonnet v2 model for descriptions.
+- [Amazon Bedrock](https://aws.amazon.com/bedrock/): A managed service that utilizes foundation models through APIs. It uses Stability AI's Stable Image Ultra model for image generation and Claude Opus 5.5 for prompt writing and stories.
 - [Amazon SageMaker](https://aws.amazon.com/sagemaker/): Deploys the necessary model as an Endpoint to process image synthesis requests.
 - [Amazon Rekognition](https://aws.amazon.com/rekognition/): Detects faces in images and videos, and crops the relevant facial areas.
 
@@ -68,8 +70,8 @@ The frontend communicates with the backend APIs to provide a seamless user exper
 
 The image generator is a Python-based utility that leverages Amazon Bedrock to create AI-generated images. It includes:
 
-- Integration with Amazon Bedrock's Nova Canvas model for image generation
-- Claude 3.5 Sonnet for text processing and prompt engineering
+- Integration with Stability AI's Stable Image Ultra model on Amazon Bedrock for image generation
+- Claude Opus 5.5 for text processing and prompt engineering
 - Configuration for various image styles, historical periods, and attributes
 - S3 integration for storing generated images
 - DynamoDB integration for tracking image metadata
@@ -85,15 +87,15 @@ Before using the image generator, you need to set up access to the required Amaz
 ### 1. Access AWS Bedrock Console
 
 1. Sign in to the AWS Bedrock console: https://console.aws.amazon.com/bedrock/
-2. Set the region to `us-east-1` (Nova Canvas model is only available in us-east-1)
+2. Use `us-east-1` for Claude Opus 5.5 (global inference profile) and `us-west-2` for Stable Image Ultra
 
 ### 2. Request Model Access
 
 1. In the left navigation pane, under **Bedrock configurations**, choose **Model access**
 2. Choose **Modify model access**
 3. Select the following models:
-   - Anthropic Claude 3.5 Sonnet
-   - Amazon Nova Canvas
+   - Anthropic Claude Opus 5.5
+   - Stability AI Stable Image Ultra
 4. Choose **Next**
 5. For Anthropic models, you must submit use case details
 6. Review and accept the terms, then choose **Submit**
@@ -151,7 +153,7 @@ To allow the image generator to save images to S3, you need to configure proper 
 
 ### Important Notes
 
-- Nova Canvas model is only available in `us-east-1` region
+- Stable Image Ultra is served from `us-west-2`; Claude Opus 5.5 is called through the global inference profile from `us-east-1`
 - Model access approval may take several minutes
 - If model access is denied, contact AWS support or choose alternative models
 

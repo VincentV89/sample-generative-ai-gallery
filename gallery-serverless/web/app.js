@@ -113,7 +113,7 @@
     throw new Error('This is taking longer than expected. Check the gallery in a minute.');
   };
 
-  const portraitInfo = (p, { headingTag = 'h2', withActions = true } = {}) => {
+  const portraitInfo = (p, { headingTag = 'h2', withActions = true, withOpenLink = true } = {}) => {
     const palette = el('div', { class: 'palette', 'aria-label': 'Colour palette' },
       (p.palette || []).filter((c) => HEX.test(c)).map((c) => {
         const s = el('span', { title: c });
@@ -122,7 +122,7 @@
       }));
     const shareUrl = `${location.origin}${location.pathname}#/p/${p.id}`;
     const actions = withActions ? el('div', { class: 'result-actions' },
-      el('a', { class: 'btn primary', href: `#/p/${p.id}`, text: 'Open portrait page' }),
+      withOpenLink ? el('a', { class: 'btn primary', href: `#/p/${p.id}`, text: 'Open portrait page' }) : null,
       el('a', { class: 'btn ghost', href: p.imageUrl, download: `${(p.title || 'portrait').replace(/[^\w-]+/g, '-')}.jpg`, text: '⬇ Download' }),
       (() => {
         const b = el('button', { type: 'button', class: 'btn ghost', text: '🔗 Copy link' });
@@ -198,7 +198,7 @@
       const p = await api(`/portraits/${encodeURIComponent(id)}`);
       if (p.status !== 'COMPLETE') throw new Error('This portrait is still being painted. Try again shortly.');
       document.title = `${p.title} · Time-Travel Portrait Studio`;
-      root.replaceChildren(el('div', { class: 'detail' }, framed(p), portraitInfo(p, { headingTag: 'h1' })));
+      root.replaceChildren(el('div', { class: 'detail' }, framed(p), portraitInfo(p, { headingTag: 'h1', withOpenLink: false })));
     } catch (err) {
       root.replaceChildren(el('p', { class: 'error center', text: err.message }));
     }

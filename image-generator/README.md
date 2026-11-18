@@ -4,12 +4,12 @@ A Python-based utility that leverages Amazon Bedrock to create AI-generated imag
 
 ## Overview
 
-This project uses Amazon Bedrock's Nova Canvas model to generate high-quality AI images. The generated images are used as base images in the face swapping process.
+This project uses Stability AI's Stable Image Ultra model on Amazon Bedrock to generate high-quality AI images. The generated images are used as base images in the face swapping process.
 
 ## Key Features
 
-- **Amazon Bedrock Nova Canvas Model Integration**: High-quality image generation
-- **Claude 3.5 Sonnet**: Text processing and prompt engineering
+- **Stable Image Ultra Model Integration**: High-quality image generation
+- **Claude Opus 5.5**: Text processing and prompt engineering
 - **Various Image Styles**: Historical periods, attributes, and diverse settings
 - **S3 Integration**: Store generated images
 - **DynamoDB Integration**: Track image metadata
@@ -21,15 +21,15 @@ This project uses Amazon Bedrock's Nova Canvas model to generate high-quality AI
 #### Access AWS Bedrock Console
 
 1. Sign in to the AWS Bedrock console: https://console.aws.amazon.com/bedrock/
-2. Set the region to `us-east-1` (Nova Canvas model is only available in us-east-1)
+2. Use `us-east-1` for Claude Opus 5.5 (global inference profile) and `us-west-2` for Stable Image Ultra
 
 #### Request Model Access
 
 1. In the left navigation pane, under **Bedrock configurations**, choose **Model access**
 2. Choose **Modify model access**
 3. Select the following models:
-   - Anthropic Claude 3.5 Sonnet
-   - Amazon Nova Canvas
+   - Anthropic Claude Opus 5.5
+   - Stability AI Stable Image Ultra
 4. Choose **Next**
 5. For Anthropic models, you must submit use case details
 6. Review and accept the terms, then choose **Submit**
@@ -243,8 +243,8 @@ tail -f logs/image-generator.log
 ### AWS Service Costs
 
 #### Amazon Bedrock
-- **Nova Canvas**: $0.08 per image (1024x1024 resolution)
-- **Claude 3.5 Sonnet**: $0.003 per 1K input tokens, $0.015 per 1K output tokens
+- **Stable Image Ultra**: see current Amazon Bedrock pricing for Stability AI models
+- **Claude Opus 5.5**: $0.003 per 1K input tokens, $0.015 per 1K output tokens
 - **Estimated monthly cost for 100 images**: $8-12
 
 #### Amazon SageMaker (GPU Instances)
