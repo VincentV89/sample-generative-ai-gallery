@@ -12,6 +12,6 @@
     "model": "AlphaFace (andrewyu90/Alphaface_Official@d41fbd4)",
     "modelArtifactPath": "sagemaker/alphaface/build/model.tar.gz",
     "imageUri": "763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:2.6.0-gpu-py312-cu124-ubuntu22.04-sagemaker",
-    "instanceType": "ml.g5.xlarge"
+    "instanceType": "ml.g4dn.xlarge"
   }
 }
