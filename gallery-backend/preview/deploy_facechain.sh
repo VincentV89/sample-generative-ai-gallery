@@ -32,7 +32,7 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
             with open(path, "rb") as fh:
                 z.writestr(info, fh.read(), zipfile.ZIP_DEFLATED)
 PY
-TAG="src-$(cd "$BACKEND/byoc/facechain" && find Dockerfile src -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
+TAG="src-$(cd "$BACKEND/byoc/facechain" && find Dockerfile download_model.py src -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 aws s3 cp --quiet --region "$REGION" "$BUILD/facechain-source.zip" "s3://$ARTIFACTS/facechain/source.zip"
 
 deploy_fc() {

@@ -10,9 +10,14 @@ from modelscope.pipelines import pipeline
 app = Flask(__name__)
 s3_client = boto3.client('s3')
 
-IMAGE_FACE_FUSION = pipeline('face_fusion_torch',
-                                model='damo/cv_unet_face_fusion_torch', 
-                                model_revision='v1.0.3')
+# The model is baked into the image (Dockerfile); fall back to the hub id when running elsewhere
+FACE_FUSION_MODEL_DIR = os.environ.get('FACE_FUSION_MODEL_DIR', '')
+if FACE_FUSION_MODEL_DIR and os.path.isdir(FACE_FUSION_MODEL_DIR):
+    IMAGE_FACE_FUSION = pipeline('face_fusion_torch', model=FACE_FUSION_MODEL_DIR)
+else:
+    IMAGE_FACE_FUSION = pipeline('face_fusion_torch',
+                                    model='damo/cv_unet_face_fusion_torch',
+                                    model_revision='v1.0.3')
 
 def face_fusion(user_path, template_path, output_path):               
     result = IMAGE_FACE_FUSION(dict(template=template_path, user=user_path))
@@ -54,14 +59,14 @@ def invocations():
     output_object_key = input_data['output']
     source_path = f"/opt/program/workspace/source/{uuid}.png"
     target_path = f"/opt/program/workspace/target/{uuid}.png"
-    output_path = f"/opt/program/workspace/output/{uuid}.png"
+    output_path = f"/opt/program/workspace/output/{uuid}.jpg"
 
     fetch_images(bucket, source_object_key, source_path, target_object_key, target_path)
 
     process_images(source_path, target_path, output_path)
     print("process_images finished")
 
-    s3_client.upload_file(output_path, bucket, output_object_key)
+    s3_client.upload_file(output_path, bucket, output_object_key, ExtraArgs={'ContentType': 'image/jpeg'})
     print("upload_file finished")
 
     remove_all_files(source_path, target_path, output_path)

@@ -25,17 +25,19 @@ RUN pip install torch torchvision torchaudio --index-url https://download.pytorc
     cd /opt/program/facefusion && \
     pip install -r requirements.txt --no-cache-dir
 
-# Bake the face fusion model weights into the image so endpoint start-up does not depend on
-# downloading them from the ModelScope hub
-ENV MODELSCOPE_CACHE=/opt/modelscope
-# modelscope 1.8.x talks to the hub over plain http, which is reset outside mainland China; use https
-RUN MS_CONST="$(python -c 'import modelscope.hub.constants as c; print(c.__file__)')" && \
-    sed -i "s#MODELSCOPE_URL_SCHEME = 'http://'#MODELSCOPE_URL_SCHEME = 'https://'#" "$MS_CONST" && \
-    grep -q "MODELSCOPE_URL_SCHEME = 'https://'" "$MS_CONST" && \
-    for i in 1 2 3 4 5; do \
-      python -c "from modelscope.hub.snapshot_download import snapshot_download; print(snapshot_download('damo/cv_unet_face_fusion_torch', revision='v1.0.3'))" && break; \
-      [ $i -lt 5 ] && sleep 20 || exit 1; \
-    done
+# Bake the face fusion model into the image so endpoint start-up does not depend on the
+# ModelScope hub (see download_model.py for why snapshot_download is not used)
+ENV FACE_FUSION_MODEL_DIR=/opt/models/cv_unet_face_fusion_torch
+ENV FACE_DETECTION_MODEL_DIR=/opt/models/cv_ddsar_face-detection_iclr23-damofd
+COPY download_model.py /opt/download_model.py
+RUN python /opt/download_model.py damo/cv_unet_face_fusion_torch v1.0.3 "$FACE_FUSION_MODEL_DIR" && \
+    python /opt/download_model.py damo/cv_ddsar_face-detection_iclr23-damofd v1.1 "$FACE_DETECTION_MODEL_DIR" && \
+    sed -i "s#det_model_id = 'damo/cv_ddsar_face-detection_iclr23-damofd'#det_model_id = '$FACE_DETECTION_MODEL_DIR'#" \
+      "$FACE_FUSION_MODEL_DIR/ms_wrapper.py" && \
+    grep -q "det_model_id = '$FACE_DETECTION_MODEL_DIR'" "$FACE_FUSION_MODEL_DIR/ms_wrapper.py"
+# Fail the build (not the endpoint start-up) if the pipeline cannot be constructed; runs on CPU here
+RUN python -c "import os; from modelscope.pipelines import pipeline; \
+    pipeline('face_fusion_torch', model=os.environ['FACE_FUSION_MODEL_DIR']); print('face fusion pipeline OK')"
 
 # Verify Python version
 RUN echo "Python version:" && python --version && \
