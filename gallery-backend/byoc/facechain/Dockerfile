@@ -28,7 +28,14 @@ RUN pip install torch torchvision torchaudio --index-url https://download.pytorc
 # Bake the face fusion model weights into the image so endpoint start-up does not depend on
 # downloading them from the ModelScope hub
 ENV MODELSCOPE_CACHE=/opt/modelscope
-RUN python -c "from modelscope.hub.snapshot_download import snapshot_download; print(snapshot_download('damo/cv_unet_face_fusion_torch', revision='v1.0.3'))"
+# modelscope 1.8.x talks to the hub over plain http, which is reset outside mainland China; use https
+RUN MS_CONST="$(python -c 'import modelscope.hub.constants as c; print(c.__file__)')" && \
+    sed -i "s#MODELSCOPE_URL_SCHEME = 'http://'#MODELSCOPE_URL_SCHEME = 'https://'#" "$MS_CONST" && \
+    grep -q "MODELSCOPE_URL_SCHEME = 'https://'" "$MS_CONST" && \
+    for i in 1 2 3 4 5; do \
+      python -c "from modelscope.hub.snapshot_download import snapshot_download; print(snapshot_download('damo/cv_unet_face_fusion_torch', revision='v1.0.3'))" && break; \
+      [ $i -lt 5 ] && sleep 20 || exit 1; \
+    done
 
 # Verify Python version
 RUN echo "Python version:" && python --version && \
