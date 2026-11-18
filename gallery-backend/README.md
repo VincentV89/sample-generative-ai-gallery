@@ -165,6 +165,36 @@ command.
 ./gallery-frontend/preview/deploy.sh     # frontend picks up the API endpoints from the backend stack
 ```
 
-The preview does not run the FaceChain SageMaker GPU endpoint. Unless `FACECHAIN_ENDPOINT_NAME`
-points at an existing endpoint, the face-swap Lambda writes a Pillow composite (the user's cropped
-face framed on the base portrait) so the upload → display flow completes end to end.
+### FaceChain GPU endpoint
+
+`preview/facechain.yaml` + `preview/deploy_facechain.sh` deploy the real face swap model
+(mirroring `stacks/byoc` and `stacks/facechain`):
+
+- an ECR repository and a CodeBuild project that builds `byoc/facechain` (the ModelScope
+  `damo/cv_unet_face_fusion_torch` weights are baked into the image at build time)
+- a SageMaker real-time endpoint `bgagent-dev-gallery-9685a0ff05aa-facechain` on one `ml.g4dn.xlarge`
+
+```bash
+./gallery-backend/preview/deploy_facechain.sh   # after deploy.sh; ~45-75 min the first time
+```
+
+The script tags the image with a hash of `byoc/facechain`, so a rerun with unchanged sources skips
+the build. It then redeploys the backend so the face-swap Lambda invokes the endpoint (`deploy.sh`
+also picks the endpoint up automatically from the facechain stack). The endpoint reads the cropped
+face and base image from the data bucket and writes `result-image/…`, which triggers the existing
+completion Lambda and shows up on the display page.
+
+If no endpoint is deployed, or an invocation fails, the face-swap Lambda writes a Pillow composite
+(the user's cropped face framed on the base portrait) so the upload → display flow still completes;
+failures are logged as `ERROR: FaceChain endpoint …` in the face-swap Lambda logs.
+
+The GPU endpoint bills per hour while it is InService. To stop the cost, delete only the endpoint
+by deploying the facechain stack with an empty `ImageTag`:
+
+```bash
+aws cloudformation deploy --region us-east-1 \
+  --stack-name bgagent-dev-vincentv89-sample-generative-ai-gallery-9685a0ff05aa-facechain \
+  --template-file gallery-backend/preview/facechain.yaml --capabilities CAPABILITY_IAM \
+  --parameter-overrides ImageTag= DataBucketName=<data bucket> SourceBucketName=<artifact bucket>
+./gallery-backend/preview/deploy.sh   # back to the composite
+```

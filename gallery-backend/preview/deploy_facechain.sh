@@ -20,7 +20,18 @@ DATA_BUCKET="$(aws cloudformation describe-stacks --region "$REGION" --stack-nam
 # 1. Build context, tagged by its content hash so unchanged sources reuse the existing image
 BUILD="$BACKEND/.preview-build"; mkdir -p "$BUILD"
 rm -f "$BUILD/facechain-source.zip"
-(cd "$BACKEND/byoc/facechain" && chmod +x src/serve && zip -qrX "$BUILD/facechain-source.zip" Dockerfile src)
+chmod +x "$BACKEND/byoc/facechain/src/serve"
+python3 - "$BACKEND/byoc/facechain" "$BUILD/facechain-source.zip" <<'PY'
+import os, sys, zipfile
+root, out = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+    for d, _, files in os.walk(root):
+        for f in files:
+            path = os.path.join(d, f)
+            info = zipfile.ZipInfo.from_file(path, os.path.relpath(path, root))
+            with open(path, "rb") as fh:
+                z.writestr(info, fh.read(), zipfile.ZIP_DEFLATED)
+PY
 TAG="src-$(cd "$BACKEND/byoc/facechain" && find Dockerfile src -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 aws s3 cp --quiet --region "$REGION" "$BUILD/facechain-source.zip" "s3://$ARTIFACTS/facechain/source.zip"
 
