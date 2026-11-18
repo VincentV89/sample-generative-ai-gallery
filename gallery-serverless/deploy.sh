@@ -17,6 +17,11 @@ fi
 
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION" CDK_DEFAULT_REGION="$REGION" CDK_DEFAULT_ACCOUNT="$ACCOUNT"
 
+# AlphaFace face-swap model artifact for the SageMaker endpoint (cached after the first build).
+if [[ "$(node -p "!!(require('./deploy.config.json').faceSwap||{}).enabled")" == "true" ]]; then
+  ./sagemaker/alphaface/build_model.sh
+fi
+
 cd infra
 npm install --no-audit --no-fund
 npx tsc

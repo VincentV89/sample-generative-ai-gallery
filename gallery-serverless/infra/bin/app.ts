@@ -21,4 +21,9 @@ new GalleryServerlessStack(app, 'GalleryServerlessStack', {
   imageModelRegion: deployConfig.imageModelRegion,
   photoModelId: deployConfig.photoModelId,
   photoModelRegion: deployConfig.photoModelRegion,
+  faceSwap: deployConfig.faceSwap?.enabled ? {
+    modelArtifactPath: deployConfig.faceSwap.modelArtifactPath,
+    imageUri: deployConfig.faceSwap.imageUri,
+    instanceType: deployConfig.faceSwap.instanceType,
+  } : undefined,
 });

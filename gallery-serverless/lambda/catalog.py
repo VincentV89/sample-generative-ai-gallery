@@ -56,9 +56,10 @@ STYLES = {
 # How closely a photo-based portrait follows the visitor's photo
 # (Stable Image Control Structure "control_strength").
 LIKENESS = {
-    "artistic": {"label": "Artistic", "hint": "Loose, painterly reinterpretation", "strength": 0.45},
-    "balanced": {"label": "Balanced", "hint": "Recognisably you, fully in period", "strength": 0.6},
-    "faithful": {"label": "Faithful", "hint": "Closest to your photo", "strength": 0.75},
+    # blend: AlphaFace face-swap strength (SageMaker). strength: Control Structure fallback.
+    "artistic": {"label": "Artistic", "hint": "Loose, painterly reinterpretation", "blend": 0.7, "strength": 0.45},
+    "balanced": {"label": "Balanced", "hint": "Recognisably you, fully in period", "blend": 0.88, "strength": 0.6},
+    "faithful": {"label": "Faithful", "hint": "Your face, as true as possible", "blend": 1.0, "strength": 0.75},
 }
 DEFAULT_LIKENESS = "balanced"
 

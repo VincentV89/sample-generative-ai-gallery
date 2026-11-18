@@ -166,6 +166,49 @@ class WorkerTests(unittest.TestCase):
         self.s3.delete_object.assert_called_once_with(Bucket="b", Key="uploads/c.jpg")
         self.assertEqual(self.s3.put_object.call_args.kwargs["Key"], f"gallery/{'c' * 32}.jpg")
 
+    def _photo_item(self, letter="f", likeness="faithful"):
+        return {"Item": {"id": letter * 32, "status": "QUEUED", "era": "victorian", "role": "inventor",
+                         "style": "baroque_oil", "photoKey": f"uploads/{letter}.jpg", "likeness": likeness}}
+
+    def test_photo_job_paints_with_ultra_then_alphaface_swaps(self):
+        sm = mock.MagicMock()
+        sm.invoke_endpoint.return_value = {"Body": io.BytesIO(json.dumps(
+            {"image": base64.b64encode(b"swapped").decode(), "inferenceMs": 90, "faces": {}}).encode())}
+        mock.patch.object(worker, "SAGEMAKER", sm).start()
+        mock.patch.object(worker, "FACE_SWAP_ENDPOINT", "alphaface-ep").start()
+        self.table.get_item.return_value = self._photo_item()
+        worker.handler({"id": "f" * 32}, None)
+        self.image.invoke_model.assert_called_once()
+        self.photo.invoke_model.assert_not_called()
+        call = sm.invoke_endpoint.call_args.kwargs
+        self.assertEqual(call["EndpointName"], "alphaface-ep")
+        payload = json.loads(call["Body"])
+        self.assertEqual(base64.b64decode(payload["source"]), b"\xff\xd8\xffphoto")
+        self.assertEqual(payload["blend"], catalog.LIKENESS["faithful"]["blend"])
+        self.assertEqual(self.s3.put_object.call_args.kwargs["Body"], b"swapped")
+        self.assertIn("face-swap model", self.text.converse.call_args.kwargs["system"][0]["text"])
+        self.s3.delete_object.assert_called_once_with(Bucket="b", Key="uploads/f.jpg")
+
+    def test_face_swap_without_face_falls_back_to_control_structure(self):
+        for letter, side_effect, value in (
+                ("g", None, {"Body": io.BytesIO(b'{"code": "NO_FACE_TARGET", "error": "x"}')}),
+                ("h", RuntimeError("endpoint down"), None)):
+            with self.subTest(letter=letter):
+                self.photo.reset_mock()
+                self.image.invoke_model.return_value = _bedrock_image_response()
+                self.photo.invoke_model.return_value = _bedrock_image_response()
+                self.s3.reset_mock()
+                sm = mock.MagicMock()
+                sm.invoke_endpoint.side_effect = side_effect
+                sm.invoke_endpoint.return_value = value
+                mock.patch.object(worker, "SAGEMAKER", sm).start()
+                mock.patch.object(worker, "FACE_SWAP_ENDPOINT", "alphaface-ep").start()
+                self.table.get_item.return_value = self._photo_item(letter, "artistic")
+                worker.handler({"id": letter * 32}, None)
+                self.photo.invoke_model.assert_called_once()
+                self.assertEqual(self.s3.put_object.call_args.kwargs["Key"], f"gallery/{letter * 32}.jpg")
+                self.s3.delete_object.assert_called_once_with(Bucket="b", Key=f"uploads/{letter}.jpg")
+
     def test_photo_deleted_even_when_rejected(self):
         self.text.converse.return_value = {"output": {"message": {"content": [
             {"text": json.dumps({"rejected": True, "reason": "No person visible."})}]}}}

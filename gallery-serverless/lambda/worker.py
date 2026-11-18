@@ -1,8 +1,12 @@
-"""Async worker: Claude (art director) -> Stability painter -> S3 + DynamoDB.
+"""Async worker: Claude (art director) -> Stability painter -> [AlphaFace face swap] -> S3 + DynamoDB.
 
-Without a photo the portrait is painted from text by Stable Image Ultra. With a visitor
-photo, Claude also looks at the photo to describe the sitter, and Stable Image Control
-Structure repaints the photo (keeping the face, pose and composition) in the chosen era/style.
+Without a photo the portrait is painted from text by Stable Image Ultra. With a visitor photo:
+1. Claude also looks at the photo and describes the sitter (hair, glasses, expression...).
+2. Stable Image Ultra paints the character in the chosen era/style.
+3. AlphaFace (a real-time face swapper on an Amazon SageMaker endpoint) puts the visitor's
+   face into the painting. The likeness setting sets the blend strength.
+If the face swap endpoint isn't configured or finds no usable face, the photo is instead
+repainted by Stable Image Control Structure (which keeps the face, pose and composition).
 """
 import base64
 import json
@@ -21,11 +25,14 @@ IMAGE_BUCKET = os.environ["IMAGE_BUCKET"]
 TEXT_MODEL_ID = os.environ["TEXT_MODEL_ID"]
 IMAGE_MODEL_ID = os.environ["IMAGE_MODEL_ID"]
 PHOTO_MODEL_ID = os.environ.get("PHOTO_MODEL_ID", "us.stability.stable-image-control-structure-v1:0")
+FACE_SWAP_ENDPOINT = os.environ.get("FACE_SWAP_ENDPOINT", "")
+FACE_SWAP_LABEL = "AlphaFace (Amazon SageMaker)"
 _cfg = Config(read_timeout=120, retries={"max_attempts": 3, "mode": "adaptive"})
 TEXT_CLIENT = boto3.client("bedrock-runtime", region_name=os.environ["TEXT_MODEL_REGION"], config=_cfg)
 IMAGE_CLIENT = boto3.client("bedrock-runtime", region_name=os.environ["IMAGE_MODEL_REGION"], config=_cfg)
 PHOTO_CLIENT = boto3.client("bedrock-runtime", region_name=os.environ.get("PHOTO_MODEL_REGION",
                                                                           os.environ["IMAGE_MODEL_REGION"]), config=_cfg)
+SAGEMAKER = boto3.client("sagemaker-runtime", config=Config(read_timeout=60, retries={"max_attempts": 2}))
 
 SYSTEM_PROMPT = """You are the art director of a museum-quality generative portrait gallery.
 Given an era, a role, an art style and an optional visitor idea, you invent ONE fictional
@@ -56,11 +63,14 @@ Respond with ONLY a raw JSON object, no markdown, with exactly these keys:
 PHOTO_RULES = """
 
 A photo of the visitor is attached. This time the sitter is the visitor themself, re-imagined
-in the chosen era, role and style. The painter will repaint this photo and keep its face,
-pose and composition, so:
+in the chosen era, role and style. The painter paints a new portrait from your prompt, then a
+face-swap model places the visitor's real face onto the painted face, so:
+- Paint exactly one person, head-and-shoulders, face turned towards the viewer, with the whole
+  face clearly visible and well lit (no masks, veils, hands or hair covering the face).
 - Describe the sitter's visible, non-sensitive appearance so the portrait still looks like them:
-  hair colour/length/style, facial hair, glasses, expression, approximate age range, and the
-  pose/framing shown. Restyle the clothing, hair accessories, background and lighting for the era.
+  hair colour/length/style, facial hair, glasses, expression, approximate age range and how they
+  present (for example as a man or a woman). Restyle the clothing, hair accessories, background
+  and lighting for the era.
 - Never guess or state who the person is, their name, or sensitive traits (ethnicity, religion,
   health and so on). The story is still a fictional character written as 'You are ...'.
 - Set "rejected" to true (with a polite "reason") if the photo shows no clearly visible person,
@@ -154,6 +164,29 @@ def paint_from_photo(photo_bytes, prompt, negative_prompt, likeness):
     return base64.b64decode(result["images"][0])
 
 
+class FaceSwapUnavailable(Exception):
+    """The face swap could not be applied (no face found, endpoint error...); use the fallback."""
+
+
+def face_swap(photo_bytes, painting_bytes, likeness):
+    """Swap the visitor's face into the painted portrait with AlphaFace on SageMaker."""
+    payload = {
+        "source": base64.b64encode(photo_bytes).decode(),
+        "target": base64.b64encode(painting_bytes).decode(),
+        "blend": LIKENESS.get(likeness, LIKENESS[DEFAULT_LIKENESS])["blend"],
+    }
+    try:
+        response = SAGEMAKER.invoke_endpoint(EndpointName=FACE_SWAP_ENDPOINT, ContentType="application/json",
+                                             Accept="application/json", Body=json.dumps(payload))
+        result = json.loads(response["Body"].read())
+    except Exception as exc:
+        raise FaceSwapUnavailable(f"endpoint error: {exc!r}") from exc
+    if "image" not in result:
+        raise FaceSwapUnavailable(f"{result.get('code')}: {result.get('error')}")
+    print(f"AlphaFace swap ok in {result.get('inferenceMs')} ms, faces={result.get('faces')}")
+    return base64.b64decode(result["image"])
+
+
 def _load_photo(key):
     data = S3.get_object(Bucket=IMAGE_BUCKET, Key=key)["Body"].read()
     return data, ("png" if key.endswith(".png") else "jpeg")
@@ -182,11 +215,22 @@ def handler(event, _context):
                     error=(brief.get("reason") or "This idea can't be painted. Please try another.")[:300])
             return
 
-        painter = PHOTO_MODEL_ID if photo else IMAGE_MODEL_ID
+        use_swap = bool(photo and FACE_SWAP_ENDPOINT)
+        painter = PHOTO_MODEL_ID if photo and not use_swap else IMAGE_MODEL_ID
         _update(portrait_id, stage="painting", title=brief["title"][:120], caption=brief["caption"][:200],
                 story=brief["story"][:1500], palette=brief["palette"], prompt=brief["prompt"][:2000],
                 imageModel=painter)
-        if photo:
+        if use_swap:
+            painting = paint(brief["prompt"], brief.get("negative_prompt"))
+            _update(portrait_id, stage="swapping")
+            try:
+                image = face_swap(photo[0], painting, item.get("likeness"))
+                _update(portrait_id, imageModel=f"{IMAGE_MODEL_ID} + {FACE_SWAP_LABEL}", faceSwap="alphaface")
+            except FaceSwapUnavailable as exc:
+                print(f"Face swap unavailable for {portrait_id} ({exc}); falling back to {PHOTO_MODEL_ID}")
+                _update(portrait_id, stage="painting", imageModel=PHOTO_MODEL_ID)
+                image = paint_from_photo(photo[0], brief["prompt"], brief.get("negative_prompt"), item.get("likeness"))
+        elif photo:
             image = paint_from_photo(photo[0], brief["prompt"], brief.get("negative_prompt"), item.get("likeness"))
         else:
             image = paint(brief["prompt"], brief.get("negative_prompt"))

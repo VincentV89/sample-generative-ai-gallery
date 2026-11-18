@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
@@ -11,6 +13,17 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as s3assets from 'aws-cdk-lib/aws-s3-assets';
+import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';
+
+export interface FaceSwapProps {
+  /** Path to the AlphaFace model.tar.gz built by sagemaker/alphaface/build_model.sh. */
+  readonly modelArtifactPath: string;
+  /** SageMaker PyTorch inference DLC image URI. */
+  readonly imageUri: string;
+  /** Real-time endpoint instance type (e.g. ml.g5.xlarge). */
+  readonly instanceType: string;
+}
 
 export interface GalleryServerlessStackProps extends cdk.StackProps {
   /** Bedrock text model / inference profile used as the "art director" (e.g. global.anthropic.claude-opus-5-5). */
@@ -22,6 +35,8 @@ export interface GalleryServerlessStackProps extends cdk.StackProps {
   /** Bedrock photo-to-portrait model / inference profile (e.g. us.stability.stable-image-control-structure-v1:0). */
   readonly photoModelId: string;
   readonly photoModelRegion: string;
+  /** AlphaFace face-swap endpoint on SageMaker. When omitted, photos use the Control Structure painter. */
+  readonly faceSwap?: FaceSwapProps;
 }
 
 export class GalleryServerlessStack extends cdk.Stack {
@@ -77,6 +92,69 @@ export class GalleryServerlessStack extends cdk.Stack {
       PHOTO_MODEL_REGION: props.photoModelRegion,
     };
 
+    // ---------- Face swap: AlphaFace on a SageMaker real-time endpoint ----------
+    let faceSwapEndpointName: string | undefined;
+    if (props.faceSwap) {
+      const artifactPath = path.resolve(__dirname, '..', '..', props.faceSwap.modelArtifactPath);
+      if (!fs.existsSync(artifactPath)) {
+        throw new Error(`AlphaFace model artifact not found at ${artifactPath}; run sagemaker/alphaface/build_model.sh`);
+      }
+      const modelAsset = new s3assets.Asset(this, 'AlphaFaceModelArtifact', { path: artifactPath });
+      const smRole = new iam.Role(this, 'AlphaFaceSageMakerRole', {
+        assumedBy: new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+        description: 'Execution role for the AlphaFace face-swap endpoint',
+      });
+      modelAsset.grantRead(smRole);
+      smRole.addToPolicy(new iam.PolicyStatement({ actions: ['ecr:GetAuthorizationToken'], resources: ['*'] }));
+      const dlcAccount = props.faceSwap.imageUri.split('.')[0];
+      const dlcRepo = props.faceSwap.imageUri.split('/')[1].split(':')[0];
+      smRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer', 'ecr:BatchCheckLayerAvailability'],
+        resources: [`arn:aws:ecr:${this.region}:${dlcAccount}:repository/${dlcRepo}`],
+      }));
+      smRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams',
+          'cloudwatch:PutMetricData'],
+        resources: ['*'],
+      }));
+
+      const model = new sagemaker.CfnModel(this, 'AlphaFaceModel', {
+        executionRoleArn: smRole.roleArn,
+        primaryContainer: {
+          image: props.faceSwap.imageUri,
+          modelDataUrl: modelAsset.s3ObjectUrl,
+          environment: {
+            SAGEMAKER_PROGRAM: 'inference.py',
+            SAGEMAKER_SUBMIT_DIRECTORY: '/opt/ml/model/code',
+            SAGEMAKER_REGION: this.region,
+            SAGEMAKER_MODEL_SERVER_WORKERS: '1',
+            TS_DEFAULT_RESPONSE_TIMEOUT: '120',
+          },
+        },
+      });
+      model.node.addDependency(smRole);
+      const endpointConfig = new sagemaker.CfnEndpointConfig(this, 'AlphaFaceEndpointConfig', {
+        productionVariants: [{
+          variantName: 'AllTraffic',
+          modelName: model.attrModelName,
+          initialInstanceCount: 1,
+          instanceType: props.faceSwap.instanceType,
+          initialVariantWeight: 1,
+          containerStartupHealthCheckTimeoutInSeconds: 900,
+          modelDataDownloadTimeoutInSeconds: 900,
+        }],
+      });
+      // Deterministic, lower-case name (SageMaker ARNs are lower-case), unique per stack.
+      const endpointName = `alphaface-${crypto.createHash('sha256').update(this.stackName).digest('hex').slice(0, 12)}`;
+      const endpoint = new sagemaker.CfnEndpoint(this, 'AlphaFaceEndpoint', {
+        endpointName,
+        endpointConfigName: endpointConfig.attrEndpointConfigName,
+      });
+      endpoint.node.addDependency(endpointConfig);
+      faceSwapEndpointName = endpointName;
+      new cdk.CfnOutput(this, 'FaceSwapEndpointName', { value: endpoint.attrEndpointName });
+    }
+
     const worker = new lambda.Function(this, 'WorkerFunction', {
       runtime: lambda.Runtime.PYTHON_3_13,
       architecture: lambda.Architecture.ARM_64,
@@ -86,7 +164,7 @@ export class GalleryServerlessStack extends cdk.Stack {
       timeout: cdk.Duration.minutes(3),
       // Cost guard-rail for a public demo: at most N portraits painted at once.
       reservedConcurrentExecutions: 5,
-      environment: commonEnv,
+      environment: { ...commonEnv, ...(faceSwapEndpointName ? { FACE_SWAP_ENDPOINT: faceSwapEndpointName } : {}) },
       logGroup: new logs.LogGroup(this, 'WorkerLogs', {
         retention: logs.RetentionDays.ONE_WEEK,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -131,6 +209,13 @@ export class GalleryServerlessStack extends cdk.Stack {
         `arn:aws:bedrock:*::foundation-model/${photoFoundationModel}`,
       ],
     }));
+
+    if (faceSwapEndpointName) {
+      worker.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['sagemaker:InvokeEndpoint'],
+        resources: [`arn:aws:sagemaker:${this.region}:${this.account}:endpoint/${faceSwapEndpointName}`],
+      }));
+    }
 
     // ---------- API ----------
     const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {

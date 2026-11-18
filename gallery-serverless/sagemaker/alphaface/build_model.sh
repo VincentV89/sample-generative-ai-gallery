@@ -18,7 +18,7 @@ ARCFACE_GDRIVE_ID=1qc4s6eRQPluma72WFibUnw74GPMAYRtY
 YUNET_URL=https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 
 mkdir -p "$WORK" "$OUT/model/code/alphaface"
-if [[ ! -d "$WORK/venv" ]]; then
+if [[ ! -s "$OUT/model/alphaface_swapper.pt" || ! -s "$OUT/model/arcface_w600k_r50_pytorch.pt" ]] && [[ ! -d "$WORK/venv" ]]; then
   python3 -m venv "$WORK/venv"
   "$WORK/venv/bin/pip" install -q gdown numpy torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
 fi
@@ -29,15 +29,21 @@ if [[ ! -d "$WORK/Alphaface_Official" ]]; then
 fi
 git -C "$WORK/Alphaface_Official" checkout -q "$ALPHAFACE_COMMIT"
 
-[[ -s "$WORK/alphaface_demo.pt" ]] || "$WORK/venv/bin/gdown" -q "$ALPHAFACE_GDRIVE_ID" -O "$WORK/alphaface_demo.pt"
 [[ -s "$OUT/model/arcface_w600k_r50_pytorch.pt" ]] || "$WORK/venv/bin/gdown" -q "$ARCFACE_GDRIVE_ID" -O "$OUT/model/arcface_w600k_r50_pytorch.pt"
-[[ -s "$OUT/model/alphaface_swapper.pt" ]] || "$PY" -I "$HERE/extract_swapper.py" "$WORK/alphaface_demo.pt" "$OUT/model/alphaface_swapper.pt"
+if [[ ! -s "$OUT/model/alphaface_swapper.pt" ]]; then
+  [[ -s "$WORK/alphaface_demo.pt" ]] || "$WORK/venv/bin/gdown" -q "$ALPHAFACE_GDRIVE_ID" -O "$WORK/alphaface_demo.pt"
+  "$PY" -I "$HERE/extract_swapper.py" "$WORK/alphaface_demo.pt" "$OUT/model/alphaface_swapper.pt"
+  rm -f "$WORK/alphaface_demo.pt"  # 1.9 GB training checkpoint; only the generator is needed
+fi
 [[ -s "$OUT/model/face_detection_yunet_2023mar.onnx" ]] || curl -sSfL -o "$OUT/model/face_detection_yunet_2023mar.onnx" "$YUNET_URL"
 
-cp "$WORK/Alphaface_Official/Models/emp.npy" "$OUT/model/emp.npy"
-cp "$WORK/Alphaface_Official/Models/Swapper_Units_AdIN.py" "$WORK/Alphaface_Official/Models/arcface_resnet.py" \
+cp -p "$WORK/Alphaface_Official/Models/emp.npy" "$OUT/model/emp.npy"
+cp -p "$WORK/Alphaface_Official/Models/Swapper_Units_AdIN.py" "$WORK/Alphaface_Official/Models/arcface_resnet.py" \
    "$WORK/Alphaface_Official/LICENSE" "$OUT/model/code/alphaface/"
-cp "$HERE/code/inference.py" "$HERE/code/requirements.txt" "$OUT/model/code/"
+cp -p "$HERE/code/inference.py" "$HERE/code/requirements.txt" "$OUT/model/code/"
 
+if [[ -s "$OUT/model.tar.gz" && -z "$(find "$OUT/model" -newer "$OUT/model.tar.gz" -type f)" ]]; then
+  echo "Up to date: $OUT/model.tar.gz"; exit 0
+fi
 tar -C "$OUT/model" -czf "$OUT/model.tar.gz" .
 echo "Built $OUT/model.tar.gz ($(du -h "$OUT/model.tar.gz" | cut -f1))"

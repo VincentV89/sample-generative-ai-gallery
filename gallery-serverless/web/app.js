@@ -77,6 +77,7 @@
     $('#photo-remove').hidden = !dataUrl;
     $('#likeness-step').hidden = !dataUrl;
     $('#consent-row').hidden = !dataUrl;
+    $('.pipeline li[data-stage="swapping"]').hidden = !dataUrl;
     $('#twist-step').textContent = dataUrl ? '6' : '5';
     if (dataUrl) $('#photo-img').src = dataUrl;
     else $('#photo-img').removeAttribute('src');
@@ -131,7 +132,7 @@
     ['empty', 'progress', 'result'].forEach((s) => { $(`#stage-${s}`).hidden = s !== which; });
   };
 
-  const ORDER = ['queued', 'directing', 'painting', 'done'];
+  const ORDER = ['queued', 'directing', 'painting', 'swapping', 'done'];
   const updatePipeline = (stage, title) => {
     const idx = ORDER.indexOf(stage);
     document.querySelectorAll('.pipeline li').forEach((li) => {

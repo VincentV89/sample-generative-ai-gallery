@@ -6,5 +6,12 @@
   "imageModelId": "stability.stable-image-ultra-v1:1",
   "imageModelRegion": "us-west-2",
   "photoModelId": "us.stability.stable-image-control-structure-v1:0",
-  "photoModelRegion": "us-west-2"
+  "photoModelRegion": "us-west-2",
+  "faceSwap": {
+    "enabled": true,
+    "model": "AlphaFace (andrewyu90/Alphaface_Official@d41fbd4)",
+    "modelArtifactPath": "sagemaker/alphaface/build/model.tar.gz",
+    "imageUri": "763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:2.6.0-gpu-py312-cu124-ubuntu22.04-sagemaker",
+    "instanceType": "ml.g5.xlarge"
+  }
 }

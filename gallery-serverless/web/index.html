@@ -87,6 +87,7 @@
             <li data-stage="queued"><span class="dot"></span>Request received</li>
             <li data-stage="directing"><span class="dot"></span><strong>Claude Opus 5.5</strong> is studying your photo, inventing your character &amp; story</li>
             <li data-stage="painting"><span class="dot"></span><strong>Stability AI</strong> is painting your portrait</li>
+            <li data-stage="swapping" hidden><span class="dot"></span><strong>AlphaFace on Amazon SageMaker</strong> is placing your face into the painting</li>
             <li data-stage="done"><span class="dot"></span>Hanging it in the gallery</li>
           </ol>
           <p id="progress-title" class="progress-title"></p>
@@ -101,7 +102,8 @@
         <li><span>☁️</span><h3>Amazon CloudFront + S3</h3><p>Serves the static app and every portrait from a private bucket via Origin Access Control.</p></li>
         <li><span>⚡</span><h3>API Gateway + Lambda</h3><p>Validates the request and starts an async worker, so there are no servers to manage.</p></li>
         <li><span>🧠</span><h3>Claude Opus 5.5</h3><p>Acts as the art director: invents a fictional character, story and palette, writes the image prompt, and screens unsafe ideas.</p></li>
-        <li><span>🎨</span><h3>Stability AI on Amazon Bedrock</h3><p><strong>Stable Image Control Structure</strong> repaints your photo in the chosen era and keeps your face and pose. Without a photo, <strong>Stable Image Ultra</strong> paints from text.</p></li>
+        <li><span>🎨</span><h3>Stability AI on Amazon Bedrock</h3><p><strong>Stable Image Ultra</strong> paints the character in the era and style you chose.</p></li>
+        <li><span>🎭</span><h3>AlphaFace on Amazon SageMaker</h3><p>A real-time face swapper that handles different head poses. It runs on a GPU endpoint and places your face into the painting, colour-matched to the brushwork. If no face can be swapped, <strong>Stable Image Control Structure</strong> repaints your photo instead.</p></li>
         <li><span>📺</span><h3>Gallery display</h3><p>A kiosk screen cycles through the newest portraits and shows a QR code, so visitors can make their own on their phone.</p></li>
       </ol>
     </section>
@@ -133,7 +135,7 @@
   </main>
 
   <footer class="footer">
-    Built with Amazon Bedrock (Claude Opus 5.5 · Stable Image Ultra · Stable Image Control Structure), AWS Lambda, Amazon API Gateway, Amazon DynamoDB, Amazon S3 &amp; Amazon CloudFront.
+    Built with Amazon Bedrock (Claude Opus 5.5 · Stable Image Ultra · Stable Image Control Structure), AlphaFace on Amazon SageMaker, AWS Lambda, Amazon API Gateway, Amazon DynamoDB, Amazon S3 &amp; Amazon CloudFront.
     All characters are fictional and AI-generated.
   </footer>
 
