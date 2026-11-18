@@ -184,6 +184,13 @@ also picks the endpoint up automatically from the facechain stack). The endpoint
 face and base image from the data bucket and writes `result-image/…`, which triggers the existing
 completion Lambda and shows up on the display page.
 
+End-to-end check (same API calls as the frontend; fails if the composite fallback was used):
+
+```bash
+uv run --no-project --with boto3 --with pillow python gallery-backend/preview/e2e_facechain.py \
+  us-east-1 <ApiEndpoint> face.jpg <face-swap Lambda name> result.jpg
+```
+
 If no endpoint is deployed, or an invocation fails, the face-swap Lambda writes a Pillow composite
 (the user's cropped face framed on the base portrait) so the upload → display flow still completes;
 failures are logged as `ERROR: FaceChain endpoint …` in the face-swap Lambda logs.
