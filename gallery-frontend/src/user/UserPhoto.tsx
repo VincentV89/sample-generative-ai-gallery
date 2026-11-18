@@ -30,6 +30,7 @@ const UserPhoto = ({ signOut, user }) => {
   const [showPrivacyModal, setShowPrivacyModal] = useState(true);
   const [agreementUserName, setAgreementUserName] = useState(null);
   const [agreementResult, setAgreementResult] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const { t } = useTranslation();
 
   const location = useLocation();
@@ -66,8 +67,8 @@ const UserPhoto = ({ signOut, user }) => {
     }
   };
 
-  const uploadImage = () => {
-    const uuid = uuidX(user.username);
+  const uploadImage = async () => {
+    setUploadError(null);
     setUploadProgress1(1);
     const requestBody = {
       userId: user.username,
@@ -76,26 +77,34 @@ const UserPhoto = ({ signOut, user }) => {
       skin: skinTone
     };
 
-    fetch(process.env.REACT_APP_API_ENDPOINT+`/images/upload`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    })
-      .then(response => response.json())
-      .then(data => {
-        console.log('Fetched presigned data:', data);
-        console.log('Fetched presigned url:', data.uploadUrl); 
-        console.log('uploading Image To S3');
-        uploadImageToS3(data.uploadUrl, capturedImage).then(() => setUploadProgress2(50));
-        console.log('call Agreement API');
-        console.log(data)
-        sendUserAgreementCommand(data.uploadUrl, user.username, agreementUserName);
-        setUploadProgress2(100);
-        navigate('/user/finish');
-    })
-    .catch(error => console.error('Error while uploading the image:', error));
+    try {
+      const response = await fetch(process.env.REACT_APP_API_ENDPOINT+`/images/upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      const data = await response.json();
+      if (!response.ok || !data.uploadUrl) {
+        throw new Error(data.error || `Upload request failed (${response.status})`);
+      }
+      setUploadProgress2(50);
+      // Upload first so the backend pipeline has the photo before we leave this page
+      await uploadImageToS3(data.uploadUrl, capturedImage);
+      try {
+        await sendUserAgreementCommand(data.uploadUrl, user.username, agreementUserName);
+      } catch (agreementError) {
+        console.error('Error while saving the agreement:', agreementError);
+      }
+      setUploadProgress2(100);
+      navigate('/user/finish', { state: { userId: user.username } });
+    } catch (error) {
+      console.error('Error while uploading the image:', error);
+      setUploadProgress1(0);
+      setUploadProgress2(100);
+      setUploadError(t('uploadFailed'));
+    }
   }
 
   const uploadImageToS3 = async (presignedUrl4Put: string, imageSrc: any) => {
@@ -130,14 +139,14 @@ const UserPhoto = ({ signOut, user }) => {
           setUploadProgress1(100);
           console.log('Image uploaded successfully');
         } else {
-          console.error('Error uploading image with status:', uploadResponse.status);
+          throw new Error(`Error uploading image with status: ${uploadResponse.status}`);
         }
       } catch (error) {
         console.error('Error details:', error.response ? error.response.data : error.message);
-        console.error('Error uploading image:', error);
+        throw error;
       }
     } else {
-      console.error('Presigned URL not available');
+      throw new Error('Presigned URL not available');
     }
   };
 
@@ -181,6 +190,9 @@ const UserPhoto = ({ signOut, user }) => {
         }
       })()}
       </div>
+      {uploadError && (
+        <div className="upload-error-message" role="alert">{uploadError}</div>
+      )}
       <div>
         {Math.min(uploadProgress1, uploadProgress2) > 0 && (
           <div>

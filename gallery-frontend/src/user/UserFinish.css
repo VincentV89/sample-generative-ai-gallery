@@ -64,3 +64,7 @@
   .start-button:hover {
     background-color: #01468f; /* 버튼 호버 시 어두운 노란색 */
   }
+.display-link {
+  color: #ffd27f;
+  text-decoration: underline;
+}

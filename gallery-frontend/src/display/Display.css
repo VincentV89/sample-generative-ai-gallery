@@ -135,3 +135,10 @@
   display: none;
   transition: opacity 5000ms ease-in-out
 }
+.display-waiting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.5rem;
+}

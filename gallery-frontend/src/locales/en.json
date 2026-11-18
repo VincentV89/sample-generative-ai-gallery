@@ -5,6 +5,7 @@
     "startButton": "Start",
     "takePhoto": "Take Photo",
     "signOutButton": "Sign Out: ",
+    "uploadFailed": "Upload failed. Please try again.",
     "uploadComplete": "<strong>Photo uploaded</strong>.<br/><strong>Wait 30 seconds</strong> to see the <strong>AI-generated image</strong> on the display.",
     "goBackToStart": "Go Back to Start",
     "retake": "Retake",

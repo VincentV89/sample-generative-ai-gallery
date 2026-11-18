@@ -10,7 +10,7 @@ cfg() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[
 STACK="$(cfg stackName)"; FRONTEND_STACK="$(cfg frontendStackName)"; REGION="$(cfg region)"
 
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
-ARTIFACTS="bgagent-dev-gallery-9685a0ff05aa-artifacts-$ACCOUNT-$REGION"
+ARTIFACTS="bgagent-dev-gallery-9685a0ff05aa-art-$ACCOUNT-$REGION"
 
 # Frontend origin for CORS (falls back to localhost if the frontend preview isn't deployed yet)
 ORIGIN="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$FRONTEND_STACK" \

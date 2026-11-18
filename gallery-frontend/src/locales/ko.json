@@ -5,6 +5,7 @@
     "startButton": "시작",
     "takePhoto": "사진 촬영",
     "signOutButton": "로그아웃: ",
+    "uploadFailed": "업로드에 실패했습니다. 다시 시도해 주세요.",
     "uploadComplete": "<strong>사진 등록이 완료됐습니다.</strong><br/>30초 정도 기다리시면 앞에 있는 디스플레이를 통해서 AI가 생성한 이미지를 확인하실 수 있습니다.",
     "goBackToStart": "처음으로 돌아가기",
     "retake": "재촬영",

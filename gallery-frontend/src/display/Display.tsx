@@ -44,7 +44,8 @@ const DisplayComponent = () => {
   });
 
   useEffect(() => {
-    if(!data) return;
+    // The API answers 404 until the first image for this user has been processed
+    if(!data || !(data as ImageElement).imageUrl) return;
     const d: ImageElement = data as ImageElement;
 
     if (d.uuid !== uuid){
@@ -67,7 +68,11 @@ const DisplayComponent = () => {
     }
   }
 
-  if(!result) return;
+  if(!result) return (
+    <div className='display-page display-waiting'>
+      <p>Waiting for your past-life portrait&hellip;</p>
+    </div>
+  );
 
   return (
       <div className='display-page' onClick={() => {

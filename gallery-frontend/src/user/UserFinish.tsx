@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import './UserFinish.css';
 
 const UserFinish: React.FC = () => {
   const [timer, setTimer] = useState(15);
   const navigate = useNavigate();
+  const location = useLocation();
+  const userId = (location.state as { userId?: string } | null)?.userId;
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -32,6 +34,13 @@ const UserFinish: React.FC = () => {
         <button className="go-start-button" onClick={handleClick}>
           Click To Start
         </button>
+        {userId && (
+          <p>
+            <a className="display-link" href={`#/display/${encodeURIComponent(userId)}`}>
+              Open my result on the display
+            </a>
+          </p>
+        )}
       </div>
     </div>
   );
