@@ -14,6 +14,8 @@ interface ImageElement {
   imageUrl: string;
   story: string;
   uuid: string;
+  type?: string;
+  image?: string;
 };
 
 const DisplayApp = () => {
@@ -193,7 +195,7 @@ const ImageComponent = ({audioRef, element, handleAudioEnd}: ImageComponentProps
           <QRCode
               size={256}
               style={{ height: "100%", width: "100%", opacity: 0.5}}
-              value={"https://dmlm6xibd3abb.cloudfront.net" + element.image.split("?")[0].slice(45)}
+              value={"https://dmlm6xibd3abb.cloudfront.net" + (element.image ?? "").split("?")[0].slice(45)}
               viewBox={`0 0 256 256`}
           />
       </div>

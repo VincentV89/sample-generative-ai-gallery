@@ -13,8 +13,8 @@ import './App.css';
 Amplify.configure({
   Auth: {
     Cognito: {
-      userPoolId: 'us-west-2_1LvZJkpuX',
-      userPoolClientId: '5hoabdbiqij15bmcpfkd281npr',
+      userPoolId: process.env.REACT_APP_COGNITO_USER_POOL_ID || 'us-west-2_1LvZJkpuX',
+      userPoolClientId: process.env.REACT_APP_COGNITO_CLIENT_ID || '5hoabdbiqij15bmcpfkd281npr',
     }
   }
 });
