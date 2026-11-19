@@ -71,6 +71,14 @@ face-swap model places the visitor's real face onto the painted face, so:
   hair colour/length/style, facial hair, glasses, expression, approximate age range and how they
   present (for example as a man or a woman). Restyle the clothing, hair accessories, background
   and lighting for the era.
+- Preserve the photo's hairstyle, hairline, facial-hair pattern, glasses, face proportions,
+  expression and head angle. Make those visible details explicit in the image prompt.
+  The historical transformation comes from clothing, accessories and surroundings.
+  If the visitor has short straight hair, describe short straight hair; if clean-shaven,
+  describe smooth cheeks and put beard, moustache and goatee in negative_prompt.
+  Avoid inventing facial hair or changing the sitter's apparent age to fit the era.
+- Use soft, even portrait lighting and a large, unobstructed face. Preserve the source
+  expression and pose, with both eyes visible whenever the source shows both eyes.
 - Never guess or state who the person is, their name, or sensitive traits (ethnicity, religion,
   health and so on). The story is still a fictional character written as 'You are ...'.
 - Set "rejected" to true (with a polite "reason") if the photo shows no clearly visible person,

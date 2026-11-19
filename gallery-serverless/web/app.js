@@ -28,7 +28,7 @@
 
   const state = {
     options: null,
-    selection: { era: null, role: null, style: null, likeness: 'balanced' },
+    selection: { era: null, role: null, style: null, likeness: 'faithful' },
     photo: null, // JPEG data URL, centre-cropped to 2:3 in the browser
     displayTimers: [],
   };
@@ -381,7 +381,7 @@
       renderChips('role-options', 'role', state.options.roles);
       renderChips('style-options', 'style', state.options.styles);
       renderChips('likeness-options', 'likeness', (state.options.likeness || []).map((l) => ({ ...l, years: l.hint })));
-      state.selection.likeness = state.options.defaultLikeness || 'balanced';
+      state.selection.likeness = state.options.defaultLikeness || 'faithful';
       select('likeness', state.selection.likeness);
       idea.maxLength = state.options.maxIdeaLength;
       $('#idea-max').textContent = state.options.maxIdeaLength;

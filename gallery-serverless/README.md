@@ -14,9 +14,9 @@ How a portrait is made:
    1. detects faces with OpenCV YuNet,
    2. FFHQ-aligns the faces from 5 landmarks,
    3. swaps the 256 px face crop (ArcFace R50 identity),
-   4. colour-matches the face to the painting (LAB transfer) and pastes it back with a feathered mask.
+   4. gently colour-matches the face to the painting and composites it with a landmark-fitted mask, an opaque centre, and separate lighting/detail blending at the edges.
 
-   The likeness setting (Artistic / Balanced / Faithful) maps to a swap blend of 0.7 / 0.88 / 1.0.
+   The likeness setting (Artistic / Balanced / Faithful) maps to a swap blend of 0.85 / 0.98 / 1.0. Faithful is the default. The art direction preserves hairstyle, facial hair, expression and pose from the source photo.
    - **Fallback:** if the endpoint finds no usable face (or is unavailable), the photo is repainted with **Stable Image Control Structure** (`us.stability.stable-image-control-structure-v1:0`, `control_strength` 0.45 / 0.6 / 0.75). Set `faceSwap.enabled: false` in `deploy.config.json` to skip SageMaker completely.
 5. The portrait goes up on the gallery and the display. The visitor's original photo is deleted as soon as the job finishes, and an S3 lifecycle rule on `uploads/` (1 day) is the backstop.
 

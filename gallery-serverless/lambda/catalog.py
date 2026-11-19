@@ -57,11 +57,11 @@ STYLES = {
 # (Stable Image Control Structure "control_strength").
 LIKENESS = {
     # blend: AlphaFace face-swap strength (SageMaker). strength: Control Structure fallback.
-    "artistic": {"label": "Artistic", "hint": "Loose, painterly reinterpretation", "blend": 0.7, "strength": 0.45},
-    "balanced": {"label": "Balanced", "hint": "Recognisably you, fully in period", "blend": 0.88, "strength": 0.6},
+    "artistic": {"label": "Artistic", "hint": "Loose, painterly reinterpretation", "blend": 0.85, "strength": 0.45},
+    "balanced": {"label": "Balanced", "hint": "Recognisably you, fully in period", "blend": 0.98, "strength": 0.6},
     "faithful": {"label": "Faithful", "hint": "Your face, as true as possible", "blend": 1.0, "strength": 0.75},
 }
-DEFAULT_LIKENESS = "balanced"
+DEFAULT_LIKENESS = "faithful"
 
 MAX_IDEA_LENGTH = 200
 # Decoded upload size limit; the browser resizes photos to ~1 MP JPEG (~150-400 KB) first.

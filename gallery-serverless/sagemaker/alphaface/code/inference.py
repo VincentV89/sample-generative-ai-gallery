@@ -30,6 +30,7 @@ import time
 import cv2
 import numpy as np
 import torch
+from blending import face_mask, match_colour, composite_face
 from torch import nn
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -129,31 +130,6 @@ def ffhq_affine(landmarks5, size=TARGET_SIZE):
     return cv2.getAffineTransform(quad.astype(np.float32), dst.astype(np.float32))
 
 
-def face_mask(size=TARGET_SIZE):
-    """Feathered elliptical mask of the inner face (brows to chin) in FFHQ-aligned crop space."""
-    mask = np.zeros((size, size), np.float32)
-    s = size / 256.0
-    cv2.ellipse(mask, (int(128 * s), int(140 * s)), (int(70 * s), int(92 * s)), 0, 0, 360, 1.0, -1)
-    k = int(31 * s) | 1
-    mask = cv2.GaussianBlur(mask, (k, k), 0)
-    return cv2.GaussianBlur(mask, (k, k), 0)
-
-
-def match_colour(swapped_rgb, reference_rgb, mask):
-    """Reinhard colour transfer in LAB, measured inside the mask, so the face keeps the painting's palette."""
-    m = mask > 0.5
-    if m.sum() < 100:
-        return swapped_rgb
-    src = cv2.cvtColor(swapped_rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
-    ref = cv2.cvtColor(reference_rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
-    out = src.copy()
-    for ch in range(3):
-        s_mean, s_std = src[..., ch][m].mean(), src[..., ch][m].std() + 1e-6
-        r_mean, r_std = ref[..., ch][m].mean(), ref[..., ch][m].std() + 1e-6
-        out[..., ch] = (src[..., ch] - s_mean) * (r_std / s_std) + r_mean
-    return cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB)
-
-
 def decode_image(b64):
     if isinstance(b64, str) and b64.startswith("data:"):
         b64 = b64.split(",", 1)[1]
@@ -186,7 +162,8 @@ def swap(model, source_bgr, target_bgr, blend=0.9):
                               borderMode=cv2.BORDER_REFLECT)
 
     swapped = model.swap_crop(tgt_crop, src_crop)
-    mask = face_mask()
+    aligned_landmarks = cv2.transform(tgt_faces[0][4:14].reshape(1, 5, 2), m_tgt)[0]
+    mask = face_mask(aligned_landmarks, TARGET_SIZE)
     swapped = match_colour(swapped, tgt_crop, mask)
 
     # Paste back into the full-resolution portrait.
@@ -194,9 +171,8 @@ def swap(model, source_bgr, target_bgr, blend=0.9):
     inv = cv2.invertAffineTransform(m_tgt)
     face_full = cv2.warpAffine(swapped, inv, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
     mask_full = cv2.warpAffine(mask, inv, (w, h), flags=cv2.INTER_LINEAR, borderValue=0.0)
-    alpha = (np.clip(float(blend), 0.0, 1.0) * mask_full)[..., None]
-    out = target_rgb.astype(np.float32) * (1 - alpha) + face_full.astype(np.float32) * alpha
-    out_bgr = cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+    out = composite_face(face_full, target_rgb, mask_full, blend)
+    out_bgr = cv2.cvtColor(out, cv2.COLOR_RGB2BGR)
     return out_bgr, {"faces": {"source": int(len(src_faces)), "target": int(len(tgt_faces))}}
 
 

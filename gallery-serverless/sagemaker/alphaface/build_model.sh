@@ -40,7 +40,7 @@ fi
 cp -p "$WORK/Alphaface_Official/Models/emp.npy" "$OUT/model/emp.npy"
 cp -p "$WORK/Alphaface_Official/Models/Swapper_Units_AdIN.py" "$WORK/Alphaface_Official/Models/arcface_resnet.py" \
    "$WORK/Alphaface_Official/LICENSE" "$OUT/model/code/alphaface/"
-cp -p "$HERE/code/inference.py" "$HERE/code/requirements.txt" "$OUT/model/code/"
+cp -p "$HERE/code/inference.py" "$HERE/code/blending.py" "$HERE/code/requirements.txt" "$OUT/model/code/"
 
 if [[ -s "$OUT/model.tar.gz" && -z "$(find "$OUT/model" -newer "$OUT/model.tar.gz" -type f)" ]]; then
   echo "Up to date: $OUT/model.tar.gz"; exit 0
